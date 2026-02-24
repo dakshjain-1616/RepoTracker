@@ -404,6 +404,7 @@ export interface GetIssuesOptions {
   page?: number
   limit?: number
   aiml?: boolean
+  repo?: string   // filter by repo_full_name
 }
 
 export async function getIssues(
@@ -419,9 +420,10 @@ export async function getIssues(
     page = 1,
     limit = 24,
     aiml,
+    repo,
   } = options
 
-  const cacheKey = `${difficulty}|${label}|${q}|${sort}|${page}|${limit}|${aiml ?? ''}`
+  const cacheKey = `${difficulty}|${label}|${q}|${sort}|${page}|${limit}|${aiml ?? ''}|${repo ?? ''}`
   const cached = issuesCache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) return cached.data
 
@@ -443,6 +445,10 @@ export async function getIssues(
   }
   if (aiml) {
     conditions.push('i.is_aiml_issue = 1')
+  }
+  if (repo) {
+    conditions.push('i.repo_full_name = @repo')
+    args.repo = repo
   }
 
   const where = `WHERE ${conditions.join(' AND ')}`

@@ -5,6 +5,7 @@ import { RepoRow } from './RepoRow'
 import { FilterBar } from './FilterBar'
 import { SyncStatus } from './SyncStatus'
 import { StatsHeader } from './StatsHeader'
+import { RepoIssuesDrawer } from './RepoIssuesDrawer'
 import type { Repo, ApiResponse, CategoryFilter, SortField } from '@/types'
 
 interface LeaderboardTableProps {
@@ -22,6 +23,7 @@ export function LeaderboardTable({ initialData }: LeaderboardTableProps) {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
+  const [issuesRepo, setIssuesRepo] = useState<Repo | null>(null)
 
   const limit = 25
 
@@ -123,12 +125,13 @@ export function LeaderboardTable({ initialData }: LeaderboardTableProps) {
                 <th className="py-3 px-3 text-right text-xs font-medium text-muted-foreground hidden md:table-cell">24h</th>
                 <th className="py-3 px-3 text-right text-xs font-medium text-muted-foreground hidden lg:table-cell">7d</th>
                 <th className="py-3 px-3 text-center text-xs font-medium text-muted-foreground hidden xl:table-cell">Trend</th>
+                <th className="py-3 px-3 text-center text-xs font-medium text-muted-foreground">Issues</th>
               </tr>
             </thead>
             <tbody className={loading ? 'opacity-60' : ''}>
               {repos.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-16 text-center text-muted-foreground">
+                  <td colSpan={10} className="py-16 text-center text-muted-foreground">
                     {loading ? 'Loading...' : total === 0
                       ? <span>No data yet — click <strong className="text-foreground">Sync Now</strong> above to fetch repos from GitHub.</span>
                       : 'No repositories found'}
@@ -140,6 +143,7 @@ export function LeaderboardTable({ initialData }: LeaderboardTableProps) {
                     key={repo.full_name}
                     repo={repo}
                     index={(page - 1) * limit + i}
+                    onViewIssues={setIssuesRepo}
                   />
                 ))
               )}
@@ -188,6 +192,11 @@ export function LeaderboardTable({ initialData }: LeaderboardTableProps) {
           </div>
         )}
       </div>
+
+      <RepoIssuesDrawer
+        repo={issuesRepo}
+        onClose={() => setIssuesRepo(null)}
+      />
     </div>
   )
 }

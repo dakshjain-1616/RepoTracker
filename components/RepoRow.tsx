@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { GitFork, ExternalLink } from 'lucide-react'
+import { GitFork, ExternalLink, BookOpen } from 'lucide-react'
 import Image from 'next/image'
 import type { Repo } from '@/types'
 import { StarBadge } from './StarBadge'
@@ -13,6 +13,7 @@ import type { StarHistory } from '@/types'
 interface RepoRowProps {
   repo: Repo
   index: number
+  onViewIssues?: (repo: Repo) => void
 }
 
 function RankBadge({ rank, index }: { rank: number | null; index: number }) {
@@ -76,7 +77,7 @@ function LanguageDot({ language }: { language: string | null }) {
   )
 }
 
-export function RepoRow({ repo, index }: RepoRowProps) {
+export function RepoRow({ repo, index, onViewIssues }: RepoRowProps) {
   const [history, setHistory] = useState<StarHistory[] | null>(null)
   const [loadingHistory, setLoadingHistory] = useState(false)
 
@@ -182,6 +183,20 @@ export function RepoRow({ repo, index }: RepoRowProps) {
             <Sparkline history={history ?? repo.history ?? []} />
           )}
         </div>
+      </td>
+
+      {/* Issues button */}
+      <td className="py-3 px-3 text-center">
+        <button
+          onClick={() => onViewIssues?.(repo)}
+          title={`View issues for ${repo.full_name}`}
+          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-blue-500/40 hover:bg-blue-500/10 hover:text-blue-400 transition-colors"
+        >
+          <BookOpen className="h-3.5 w-3.5" />
+          {repo.open_issues > 0 && (
+            <span className="font-mono">{repo.open_issues > 999 ? '999+' : repo.open_issues}</span>
+          )}
+        </button>
       </td>
     </tr>
   )
