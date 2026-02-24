@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: repo-tracker
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: NODE_ENV
+        value: production
+    healthCheckPath: /api/repos
+    disk:
+      name: sqlite-data
+      mountPath: /app/data
+      sizeGB: 1
