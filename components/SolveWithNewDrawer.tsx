@@ -69,21 +69,21 @@ export function SolveWithNewDrawer({ issue, onClose }: SolveWithNewDrawerProps) 
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop — z-60 so it layers above RepoIssuesDrawer (z-40) */}
       <div
         aria-hidden="true"
         onClick={onClose}
-        className={`fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300 ${
+        className={`fixed inset-0 z-60 bg-black/60 backdrop-blur-sm transition-opacity duration-300 ${
           issue ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       />
 
-      {/* Drawer panel */}
+      {/* Drawer panel — z-70 */}
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Solve with New"
-        className={`fixed right-0 top-0 z-50 h-full w-full max-w-lg flex flex-col
+        className={`fixed right-0 top-0 z-70 h-full w-full max-w-lg flex flex-col
           bg-background border-l border-border shadow-2xl
           transition-transform duration-300 ease-in-out
           ${issue ? 'translate-x-0' : 'translate-x-full'}`}

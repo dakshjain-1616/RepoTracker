@@ -105,6 +105,7 @@ export interface IssuesApiResponse {
   limit: number
   lastSynced?: string | null
   stats?: IssueStats
+  live?: boolean   // true when results are fetched live from GitHub (not from DB)
 }
 
 export interface HistoryResponse {
