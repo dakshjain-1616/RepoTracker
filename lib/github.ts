@@ -1,8 +1,9 @@
 import { Octokit } from '@octokit/rest'
-import { REPOS, BATCH_SIZE, BATCH_DELAY_MS, SYNC_INTERVAL_HOURS } from './constants'
+import { REPOS, BATCH_SIZE, BATCH_DELAY_MS } from './constants'
 import { upsertRepo, insertStarHistory, updateRanks, getRepoLastSynced, invalidateQueryCache } from './db'
 
-const CACHE_TTL_MS = (SYNC_INTERVAL_HOURS - 1) * 60 * 60 * 1000
+// Skip repos synced within the last hour to prevent rate-limit abuse on rapid clicks
+const CACHE_TTL_MS = 60 * 60 * 1000
 
 function getOctokit(): Octokit {
   return new Octokit({ auth: process.env.GITHUB_TOKEN })

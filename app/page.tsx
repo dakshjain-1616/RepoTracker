@@ -38,7 +38,7 @@ export default async function Home() {
             </div>
 
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="hidden sm:inline">Top 100 repos · Updated every 12h</span>
+              <span className="hidden sm:inline">Top 100 repos · Click Sync to refresh</span>
               <a
                 href="https://github.com"
                 target="_blank"
@@ -59,9 +59,9 @@ export default async function Home() {
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted/50">
               <Github className="h-8 w-8 text-muted-foreground" />
             </div>
-            <h2 className="text-xl font-semibold mb-2">Syncing repositories...</h2>
+            <h2 className="text-xl font-semibold mb-2">No data yet</h2>
             <p className="text-muted-foreground mb-6">
-              The initial sync is running in the background. This may take a minute.
+              Click <strong>Sync Now</strong> to fetch the latest data from GitHub.
             </p>
             <p className="text-sm text-muted-foreground">
               Make sure <code className="bg-muted px-1 py-0.5 rounded text-xs">GITHUB_TOKEN</code> is set.

@@ -108,6 +108,5 @@ export const REPOS: RepoListItem[] = [
   { full_name: 'nickvdyck/webbundle', category: 'SWE' },
 ]
 
-export const SYNC_INTERVAL_HOURS = 12
 export const BATCH_SIZE = 10
 export const BATCH_DELAY_MS = 300
