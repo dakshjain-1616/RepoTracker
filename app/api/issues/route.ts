@@ -11,10 +11,11 @@ export async function GET(request: NextRequest) {
     const label      = searchParams.get('label') ?? undefined
     const q          = searchParams.get('q') ?? undefined
     const sort       = searchParams.get('sort') ?? undefined
+    const aiml       = searchParams.get('aiml') === 'true' ? true : undefined
     const page       = parseInt(searchParams.get('page') ?? '1', 10)
     const limit      = parseInt(searchParams.get('limit') ?? '24', 10)
 
-    const { issues, total, lastSynced, stats } = await getIssues({ difficulty, label, q, sort, page, limit })
+    const { issues, total, lastSynced, stats } = await getIssues({ difficulty, label, q, sort, page, limit, aiml })
 
     const response: IssuesApiResponse = { issues, total, page, limit, lastSynced, stats }
     return NextResponse.json(response)

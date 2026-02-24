@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { IssueCard } from './IssueCard'
 import { IssuesFilterBar } from './IssuesFilterBar'
 import { SyncStatus } from './SyncStatus'
-import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
+import { SolveWithNewDrawer } from './SolveWithNewDrawer'
+import { ChevronLeft, ChevronRight, Loader2, Bot } from 'lucide-react'
 import type { IssueWithRepo, IssueStats, IssuesApiResponse } from '@/types'
 
 const LIMIT = 24
@@ -20,21 +21,27 @@ export function IssuesLedger({ initialData }: IssuesLedgerProps) {
   const [stats, setStats]           = useState<IssueStats | undefined>(initialData.stats)
   const [page, setPage]             = useState(1)
   const [difficulty, setDifficulty] = useState('')
+  const [aimlOnly, setAimlOnly]     = useState(false)
   const [q, setQ]                   = useState('')
   const [sort, setSort]             = useState('solvability')
   const [loading, setLoading]       = useState(false)
+  const [drawerIssue, setDrawerIssue] = useState<IssueWithRepo | null>(null)
+
+  const newEnabled = process.env.NEXT_PUBLIC_ENABLE_NEW_INTEGRATION === 'true'
 
   const fetchIssues = useCallback(async (
     pg: number,
     diff: string,
     query: string,
     srt: string,
+    aiml: boolean,
   ) => {
     setLoading(true)
     try {
       const params = new URLSearchParams({ page: String(pg), limit: String(LIMIT), sort: srt })
       if (diff)  params.set('difficulty', diff)
       if (query) params.set('q', query)
+      if (aiml)  params.set('aiml', 'true')
 
       const res = await fetch(`/api/issues?${params}`)
       if (!res.ok) throw new Error('Failed to fetch')
@@ -53,15 +60,15 @@ export function IssuesLedger({ initialData }: IssuesLedgerProps) {
   // Re-fetch when filters change (reset to page 1)
   useEffect(() => {
     setPage(1)
-    fetchIssues(1, difficulty, q, sort)
+    fetchIssues(1, difficulty, q, sort, aimlOnly)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [difficulty, sort])
+  }, [difficulty, sort, aimlOnly])
 
   // Debounced search
   useEffect(() => {
     const t = setTimeout(() => {
       setPage(1)
-      fetchIssues(1, difficulty, q, sort)
+      fetchIssues(1, difficulty, q, sort, aimlOnly)
     }, 400)
     return () => clearTimeout(t)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -71,7 +78,7 @@ export function IssuesLedger({ initialData }: IssuesLedgerProps) {
 
   function goTo(pg: number) {
     setPage(pg)
-    fetchIssues(pg, difficulty, q, sort)
+    fetchIssues(pg, difficulty, q, sort, aimlOnly)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -83,7 +90,7 @@ export function IssuesLedger({ initialData }: IssuesLedgerProps) {
     <div className="flex flex-col gap-6">
       {/* Top bar: stats + sync */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
-        {stats && totalAnalyzed > 0 ? (
+        {stats && (totalAnalyzed > 0 || stats.aiml > 0) ? (
           <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
             <span className="font-medium text-foreground">{total} open issues</span>
             <span className="h-3 w-px bg-border" />
@@ -99,6 +106,12 @@ export function IssuesLedger({ initialData }: IssuesLedgerProps) {
               <span className="inline-block h-2 w-2 rounded-full bg-red-500" />
               {stats.advanced} advanced
             </span>
+            {newEnabled && stats.aiml > 0 && (
+              <span className="flex items-center gap-1 text-amber-400">
+                <Bot className="h-3 w-3" />
+                {stats.aiml} AI/ML
+              </span>
+            )}
             {stats.unanalyzed > 0 && (
               <span className="flex items-center gap-1 opacity-60">
                 <span className="inline-block h-2 w-2 rounded-full bg-muted-foreground" />
@@ -109,16 +122,21 @@ export function IssuesLedger({ initialData }: IssuesLedgerProps) {
         ) : (
           <div />
         )}
-        <SyncStatus lastSynced={lastSynced} onRefresh={() => fetchIssues(1, difficulty, q, sort)} />
+        <SyncStatus
+          lastSynced={lastSynced}
+          onRefresh={() => fetchIssues(1, difficulty, q, sort, aimlOnly)}
+        />
       </div>
 
       <IssuesFilterBar
         difficulty={difficulty}
         q={q}
         sort={sort}
+        aimlOnly={aimlOnly}
         onDifficulty={d => setDifficulty(d)}
         onQ={v => setQ(v)}
         onSort={s => setSort(s)}
+        onAimlOnly={v => setAimlOnly(v)}
       />
 
       {loading ? (
@@ -136,7 +154,11 @@ export function IssuesLedger({ initialData }: IssuesLedgerProps) {
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {issues.map(issue => (
-              <IssueCard key={issue.id} issue={issue} />
+              <IssueCard
+                key={issue.id}
+                issue={issue}
+                onSolveWithNew={newEnabled ? setDrawerIssue : undefined}
+              />
             ))}
           </div>
 
@@ -170,6 +192,12 @@ export function IssuesLedger({ initialData }: IssuesLedgerProps) {
           </p>
         </>
       )}
+
+      {/* Solve with New drawer — rendered once, manages its own animation */}
+      <SolveWithNewDrawer
+        issue={drawerIssue}
+        onClose={() => setDrawerIssue(null)}
+      />
     </div>
   )
 }

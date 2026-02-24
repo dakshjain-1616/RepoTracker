@@ -103,6 +103,24 @@ export async function ensureInit(): Promise<void> {
     // Column already exists — ignore
   }
 
+  // Migrate: AIML classification columns
+  try {
+    await db.execute(`ALTER TABLE issues ADD COLUMN is_aiml_issue INTEGER DEFAULT NULL`)
+    await db.execute(`CREATE INDEX IF NOT EXISTS idx_issues_aiml ON issues(is_aiml_issue)`)
+  } catch {
+    // Column already exists — ignore
+  }
+  try {
+    await db.execute(`ALTER TABLE issues ADD COLUMN aiml_categories TEXT DEFAULT NULL`)
+  } catch {
+    // Column already exists — ignore
+  }
+  try {
+    await db.execute(`ALTER TABLE issues ADD COLUMN aiml_classified_at TEXT DEFAULT NULL`)
+  } catch {
+    // Column already exists — ignore
+  }
+
   _initialized = true
 }
 

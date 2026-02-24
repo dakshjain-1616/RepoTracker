@@ -1,6 +1,6 @@
 import { Octokit } from '@octokit/rest'
 import { ensureInit, getDb, invalidateQueryCache, getLastSynced } from './db'
-import type { IssueWithRepo, IssueStats, IssueDifficulty } from '../types'
+import type { IssueWithRepo, IssueStats, AimlCategory, IssueDifficulty } from '../types'
 
 // ---------------------------------------------------------------------------
 // In-memory cache for issues queries
@@ -175,6 +175,115 @@ Return ONLY the JSON array.`
 }
 
 // ---------------------------------------------------------------------------
+// AIML classification (feature-flagged via NEXT_PUBLIC_ENABLE_NEW_INTEGRATION)
+// ---------------------------------------------------------------------------
+
+interface AimlClassificationResult {
+  id: number
+  is_aiml: boolean
+  categories: AimlCategory[]
+}
+
+async function classifyAimlIssues(): Promise<void> {
+  if (process.env.NEXT_PUBLIC_ENABLE_NEW_INTEGRATION !== 'true') return
+
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) return
+
+  const Anthropic = (await import('@anthropic-ai/sdk')).default
+  const client = new Anthropic({ apiKey })
+
+  await ensureInit()
+  const db = getDb()
+
+  // Only classify issues that are new or updated since last classification
+  const result = await db.execute(`
+    SELECT id, title, body FROM issues
+    WHERE state = 'open'
+      AND (aiml_classified_at IS NULL OR updated_at > aiml_classified_at)
+    ORDER BY updated_at DESC
+    LIMIT 100
+  `)
+
+  const rows = result.rows as unknown as Array<{ id: number; title: string; body: string | null }>
+  if (rows.length === 0) return
+
+  console.log(`[Issues] Classifying ${rows.length} issues for AI/ML relevance...`)
+
+  const BATCH_SIZE = 10
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const batch = rows.slice(i, i + BATCH_SIZE)
+
+    const issuesText = batch
+      .map((issue, idx) => {
+        const body = issue.body ? issue.body.slice(0, 300) : ''
+        return `Issue ${idx + 1} (id=${issue.id}):\nTitle: ${issue.title}\nBody: ${body}`
+      })
+      .join('\n\n---\n\n')
+
+    const prompt = `Classify each GitHub issue as AI/ML related or not.
+An issue is AI/ML related if it involves: LLM/AI agents, memory systems, context windows, RAG,
+model integration/APIs, training/fine-tuning, inference/deployment, vector embeddings, evaluation,
+tool use/function calling, or any ML framework work.
+
+Categories (only include matching ones, or empty array if not AI/ML):
+"agent_building", "memory_context", "model_integration", "training",
+"inference", "embeddings", "evaluation", "tools_plugins"
+
+Return ONLY a JSON array (no other text):
+[{ "id": <number>, "is_aiml": <boolean>, "categories": [<strings>] }]
+
+Issues:
+${issuesText}
+
+Return ONLY the JSON array.`
+
+    try {
+      const message = await client.messages.create({
+        model: 'claude-haiku-4-5',
+        max_tokens: 1024,
+        messages: [{ role: 'user', content: prompt }],
+      })
+
+      const text = message.content[0].type === 'text' ? message.content[0].text : ''
+      const jsonMatch = text.match(/\[[\s\S]*\]/)
+      if (!jsonMatch) {
+        console.warn('[Issues] AIML classification returned no JSON array')
+        continue
+      }
+
+      const results: AimlClassificationResult[] = JSON.parse(jsonMatch[0])
+      const now = new Date().toISOString()
+
+      for (const res of results) {
+        await db.execute({
+          sql: `UPDATE issues SET
+            is_aiml_issue      = @is_aiml,
+            aiml_categories    = @categories,
+            aiml_classified_at = @classified_at
+          WHERE id = @id`,
+          args: {
+            is_aiml:       res.is_aiml ? 1 : 0,
+            categories:    JSON.stringify(res.categories ?? []),
+            classified_at: now,
+            id:            res.id,
+          },
+        })
+      }
+    } catch (err) {
+      console.error('[Issues] AIML classification batch failed:', err)
+      // Non-fatal — continue
+    }
+
+    if (i + BATCH_SIZE < rows.length) {
+      await new Promise(resolve => setTimeout(resolve, 1000))
+    }
+  }
+
+  console.log('[Issues] AIML classification complete')
+}
+
+// ---------------------------------------------------------------------------
 // Main sync function
 // ---------------------------------------------------------------------------
 
@@ -270,6 +379,13 @@ export async function syncIssues(): Promise<number> {
     console.error('[Issues] LLM enrichment failed (non-fatal):', err)
   }
 
+  // AIML classification (feature-flagged, non-blocking)
+  try {
+    await classifyAimlIssues()
+  } catch (err) {
+    console.error('[Issues] AIML classification failed (non-fatal):', err)
+  }
+
   invalidateIssuesCache()
   invalidateQueryCache()
   console.log(`[Issues] Sync complete: ${totalCount} issues upserted`)
@@ -287,6 +403,7 @@ export interface GetIssuesOptions {
   sort?: string
   page?: number
   limit?: number
+  aiml?: boolean
 }
 
 export async function getIssues(
@@ -301,9 +418,10 @@ export async function getIssues(
     sort = 'solvability',
     page = 1,
     limit = 24,
+    aiml,
   } = options
 
-  const cacheKey = `${difficulty}|${label}|${q}|${sort}|${page}|${limit}`
+  const cacheKey = `${difficulty}|${label}|${q}|${sort}|${page}|${limit}|${aiml ?? ''}`
   const cached = issuesCache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) return cached.data
 
@@ -323,6 +441,9 @@ export async function getIssues(
     conditions.push('(i.title LIKE @q OR i.llm_summary LIKE @q)')
     args.q = `%${q}%`
   }
+  if (aiml) {
+    conditions.push('i.is_aiml_issue = 1')
+  }
 
   const where = `WHERE ${conditions.join(' AND ')}`
 
@@ -341,7 +462,7 @@ export async function getIssues(
     r.category AS repo_category
   `
 
-  const [rowsResult, countResult, statsResult, lastSynced] = await Promise.all([
+  const [rowsResult, countResult, statsResult, aimlCountResult, lastSynced] = await Promise.all([
     db.execute({
       sql: `SELECT ${selectFields}
             FROM issues i
@@ -361,22 +482,29 @@ export async function getIssues(
       WHERE state = 'open'
       GROUP BY llm_difficulty
     `),
+    db.execute(`
+      SELECT COUNT(*) as count FROM issues WHERE state = 'open' AND is_aiml_issue = 1
+    `),
     getLastSynced(),
   ])
 
   const issues = (rowsResult.rows as unknown as IssueWithRepo[]).map(row => ({
     ...row,
     labels: row.labels ? JSON.parse(row.labels as unknown as string) : [],
+    aiml_categories: row.aiml_categories
+      ? JSON.parse(row.aiml_categories as unknown as string)
+      : null,
   }))
   const total = Number(countResult.rows[0].count)
 
   const statsRows = statsResult.rows as unknown as Array<{ llm_difficulty: string | null; count: number }>
-  const stats: IssueStats = { beginner: 0, intermediate: 0, advanced: 0, unanalyzed: 0 }
+  const aimlCount = Number((aimlCountResult.rows[0] as unknown as { count: number }).count)
+  const stats: IssueStats = { beginner: 0, intermediate: 0, advanced: 0, unanalyzed: 0, aiml: aimlCount }
   for (const row of statsRows) {
-    if (row.llm_difficulty === 'beginner')     stats.beginner     = Number(row.count)
+    if (row.llm_difficulty === 'beginner')          stats.beginner     = Number(row.count)
     else if (row.llm_difficulty === 'intermediate') stats.intermediate = Number(row.count)
-    else if (row.llm_difficulty === 'advanced') stats.advanced     = Number(row.count)
-    else                                        stats.unanalyzed   += Number(row.count)
+    else if (row.llm_difficulty === 'advanced')     stats.advanced     = Number(row.count)
+    else                                            stats.unanalyzed  += Number(row.count)
   }
 
   const result = { issues, total, lastSynced, stats }

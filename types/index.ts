@@ -49,6 +49,16 @@ export interface SyncResponse {
 
 export type IssueDifficulty = 'beginner' | 'intermediate' | 'advanced'
 
+export type AimlCategory =
+  | 'agent_building'
+  | 'memory_context'
+  | 'model_integration'
+  | 'training'
+  | 'inference'
+  | 'embeddings'
+  | 'evaluation'
+  | 'tools_plugins'
+
 export interface Issue {
   id: number
   github_id: number
@@ -69,6 +79,9 @@ export interface Issue {
   llm_difficulty: IssueDifficulty | null
   llm_analyzed_at: string | null
   last_synced: string
+  is_aiml_issue: number | null       // 1 | 0 | null (unclassified)
+  aiml_categories: AimlCategory[] | null  // deserialized from JSON
+  aiml_classified_at: string | null
 }
 
 export interface IssueWithRepo extends Issue {
@@ -82,6 +95,7 @@ export interface IssueStats {
   intermediate: number
   advanced: number
   unanalyzed: number
+  aiml: number
 }
 
 export interface IssuesApiResponse {

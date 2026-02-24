@@ -1,5 +1,8 @@
-import { MessageSquare, ExternalLink, Clock } from 'lucide-react'
+'use client'
+
+import { MessageSquare, ExternalLink, Clock, Bot } from 'lucide-react'
 import { DifficultyBadge } from './DifficultyBadge'
+import { AimlBadge } from './AimlBadge'
 import { SolvabilityMeter } from './SolvabilityMeter'
 import type { IssueWithRepo, IssueDifficulty } from '@/types'
 
@@ -22,24 +25,37 @@ function formatStars(n: number): string {
 
 interface IssueCardProps {
   issue: IssueWithRepo
+  onSolveWithNew?: (issue: IssueWithRepo) => void
 }
 
-export function IssueCard({ issue }: IssueCardProps) {
+export function IssueCard({ issue, onSolveWithNew }: IssueCardProps) {
   const labels: string[] = Array.isArray(issue.labels) ? issue.labels : []
   const hasLLM = issue.llm_summary !== null && issue.llm_solvability !== null
+  const isAiml = issue.is_aiml_issue === 1
+  const showSolveButton =
+    isAiml &&
+    process.env.NEXT_PUBLIC_ENABLE_NEW_INTEGRATION === 'true' &&
+    !!onSolveWithNew
 
   const bodySnippet = issue.body
     ? issue.body.replace(/<!--[\s\S]*?-->/g, '').replace(/[#*`>\[\]]/g, '').trim().slice(0, 120)
     : null
 
   return (
-    <div className="rounded-xl border border-border bg-card/50 p-4 flex flex-col gap-3 hover:border-border/80 hover:bg-card/70 transition-colors">
-      {/* Top row: difficulty badge, labels, stars */}
+    <div
+      className={`rounded-xl border p-4 flex flex-col gap-3 transition-colors ${
+        isAiml
+          ? 'border-amber-500/40 bg-amber-500/5 hover:border-amber-500/60 hover:bg-amber-500/10 shadow-[0_0_16px_rgba(245,158,11,0.07)]'
+          : 'border-border bg-card/50 hover:border-border/80 hover:bg-card/70'
+      }`}
+    >
+      {/* Top row: badges + stars */}
       <div className="flex items-center gap-2 flex-wrap">
+        {isAiml && <AimlBadge />}
         {issue.llm_difficulty && (
           <DifficultyBadge difficulty={issue.llm_difficulty as IssueDifficulty} />
         )}
-        {labels.slice(0, 3).map(label => (
+        {labels.slice(0, isAiml ? 2 : 3).map(label => (
           <span
             key={label}
             className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground"
@@ -82,7 +98,7 @@ export function IssueCard({ issue }: IssueCardProps) {
         </div>
       )}
 
-      {/* Footer: comments, age, link */}
+      {/* Footer */}
       <div className="flex items-center gap-3 text-xs text-muted-foreground mt-auto pt-1 border-t border-border/50">
         <span className="flex items-center gap-1">
           <MessageSquare className="h-3 w-3" />
@@ -92,14 +108,25 @@ export function IssueCard({ issue }: IssueCardProps) {
           <Clock className="h-3 w-3" />
           {timeAgo(issue.updated_at)}
         </span>
-        <a
-          href={issue.html_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="ml-auto flex items-center gap-1 hover:text-foreground transition-colors"
-        >
-          View <ExternalLink className="h-3 w-3" />
-        </a>
+        <div className="ml-auto flex items-center gap-2">
+          {showSolveButton && (
+            <button
+              onClick={e => { e.preventDefault(); onSolveWithNew!(issue) }}
+              className="flex items-center gap-1 rounded-lg border border-amber-500/30 bg-amber-500/15 hover:bg-amber-500/25 px-2.5 py-1 text-xs font-medium text-amber-400 transition-colors"
+            >
+              <Bot className="h-3 w-3" />
+              Solve with New
+            </button>
+          )}
+          <a
+            href={issue.html_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 hover:text-foreground transition-colors"
+          >
+            View <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
       </div>
     </div>
   )
