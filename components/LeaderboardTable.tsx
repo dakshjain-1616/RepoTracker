@@ -129,7 +129,9 @@ export function LeaderboardTable({ initialData }: LeaderboardTableProps) {
               {repos.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="py-16 text-center text-muted-foreground">
-                    {loading ? 'Loading...' : 'No repositories found'}
+                    {loading ? 'Loading...' : total === 0
+                      ? <span>No data yet — click <strong className="text-foreground">Sync Now</strong> above to fetch repos from GitHub.</span>
+                      : 'No repositories found'}
                   </td>
                 </tr>
               ) : (

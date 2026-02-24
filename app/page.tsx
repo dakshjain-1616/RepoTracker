@@ -54,22 +54,7 @@ export default async function Home() {
 
       {/* Main content */}
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
-        {initialData.total === 0 && initialData.repos.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card/30 p-12 text-center">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted/50">
-              <Github className="h-8 w-8 text-muted-foreground" />
-            </div>
-            <h2 className="text-xl font-semibold mb-2">No data yet</h2>
-            <p className="text-muted-foreground mb-6">
-              Click <strong>Sync Now</strong> to fetch the latest data from GitHub.
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Make sure <code className="bg-muted px-1 py-0.5 rounded text-xs">GITHUB_TOKEN</code> is set.
-            </p>
-          </div>
-        ) : (
-          <LeaderboardTable initialData={initialData} />
-        )}
+        <LeaderboardTable initialData={initialData} />
       </div>
 
       {/* Footer */}
