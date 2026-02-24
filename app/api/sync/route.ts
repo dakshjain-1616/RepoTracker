@@ -1,16 +1,17 @@
 import { NextResponse } from 'next/server'
 import { runSync } from '@/lib/github'
+import { discoverTrending } from '@/lib/trending'
 import type { SyncResponse } from '@/types'
 
 export const dynamic = 'force-dynamic'
 
 export async function POST() {
   try {
-    const count = await runSync()
+    const [count, trendingCount] = await Promise.all([runSync(), discoverTrending()])
     const response: SyncResponse = {
       success: true,
       count,
-      message: `Synced ${count} repositories`,
+      message: `Synced ${count} repositories, discovered ${trendingCount} trending`,
     }
     return NextResponse.json(response)
   } catch (err) {
