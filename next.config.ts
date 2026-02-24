@@ -13,7 +13,7 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  serverExternalPackages: ['@libsql/client'],
+  serverExternalPackages: ['@libsql/client', '@anthropic-ai/sdk'],
 }
 
 export default nextConfig

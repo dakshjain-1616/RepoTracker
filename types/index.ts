@@ -42,8 +42,55 @@ export interface ApiResponse {
 export interface SyncResponse {
   success: boolean
   count: number
+  issueCount?: number
   message?: string
   error?: string
+}
+
+export type IssueDifficulty = 'beginner' | 'intermediate' | 'advanced'
+
+export interface Issue {
+  id: number
+  github_id: number
+  repo_id: number
+  repo_full_name: string
+  number: number
+  title: string
+  body: string | null
+  html_url: string
+  state: string
+  labels: string[]
+  comments: number
+  created_at: string
+  updated_at: string
+  closed_at: string | null
+  llm_summary: string | null
+  llm_solvability: number | null
+  llm_difficulty: IssueDifficulty | null
+  llm_analyzed_at: string | null
+  last_synced: string
+}
+
+export interface IssueWithRepo extends Issue {
+  repo_stars: number
+  repo_language: string | null
+  repo_category: string
+}
+
+export interface IssueStats {
+  beginner: number
+  intermediate: number
+  advanced: number
+  unanalyzed: number
+}
+
+export interface IssuesApiResponse {
+  issues: IssueWithRepo[]
+  total: number
+  page: number
+  limit: number
+  lastSynced?: string | null
+  stats?: IssueStats
 }
 
 export interface HistoryResponse {

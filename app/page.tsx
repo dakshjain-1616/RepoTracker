@@ -1,6 +1,7 @@
 import { getRepos, getLastSynced } from '@/lib/db'
 import { LeaderboardTable } from '@/components/LeaderboardTable'
-import { Github } from 'lucide-react'
+import { Github, BookOpen } from 'lucide-react'
+import Link from 'next/link'
 import type { ApiResponse } from '@/types'
 
 export const dynamic = 'force-dynamic'
@@ -39,6 +40,13 @@ export default async function Home() {
 
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span className="hidden sm:inline">Top 100 repos · Click Sync to refresh</span>
+              <Link
+                href="/issues"
+                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 hover:bg-muted/50 transition-colors"
+              >
+                <BookOpen className="h-3.5 w-3.5" />
+                Issues Ledger
+              </Link>
               <a
                 href="https://github.com"
                 target="_blank"

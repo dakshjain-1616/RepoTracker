@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { runSync } from '@/lib/github'
 import { discoverTrending } from '@/lib/trending'
+import { syncIssues } from '@/lib/issues'
 import type { SyncResponse } from '@/types'
 
 export const dynamic = 'force-dynamic'
@@ -8,10 +9,12 @@ export const dynamic = 'force-dynamic'
 export async function POST() {
   try {
     const [count, trendingCount] = await Promise.all([runSync(), discoverTrending()])
+    const issueCount = await syncIssues()
     const response: SyncResponse = {
       success: true,
       count,
-      message: `Synced ${count} repositories, discovered ${trendingCount} trending`,
+      issueCount,
+      message: `Synced ${count} repos, discovered ${trendingCount} trending, fetched ${issueCount} issues`,
     }
     return NextResponse.json(response)
   } catch (err) {

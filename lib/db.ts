@@ -8,7 +8,7 @@ import type { Repo, StarHistory } from '../types'
 
 let _db: Client | null = null
 
-function getDb(): Client {
+export function getDb(): Client {
   if (!_db) {
     const url =
       process.env.TURSO_DATABASE_URL ??
@@ -65,6 +65,33 @@ export async function ensureInit(): Promise<void> {
       { sql: `CREATE INDEX IF NOT EXISTS idx_sh_ts ON star_history(recorded_at)` },
       { sql: `CREATE INDEX IF NOT EXISTS idx_repos_stars ON repos(stars)` },
       { sql: `CREATE INDEX IF NOT EXISTS idx_repos_cat ON repos(category)` },
+      {
+        sql: `CREATE TABLE IF NOT EXISTS issues (
+          id               INTEGER PRIMARY KEY AUTOINCREMENT,
+          github_id        INTEGER UNIQUE NOT NULL,
+          repo_id          INTEGER NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+          repo_full_name   TEXT NOT NULL,
+          number           INTEGER NOT NULL,
+          title            TEXT NOT NULL,
+          body             TEXT,
+          html_url         TEXT NOT NULL,
+          state            TEXT NOT NULL DEFAULT 'open',
+          labels           TEXT NOT NULL DEFAULT '[]',
+          comments         INTEGER NOT NULL DEFAULT 0,
+          created_at       TEXT NOT NULL,
+          updated_at       TEXT NOT NULL,
+          closed_at        TEXT,
+          llm_summary      TEXT,
+          llm_solvability  REAL,
+          llm_difficulty   TEXT,
+          llm_analyzed_at  TEXT,
+          last_synced      TEXT NOT NULL
+        )`,
+      },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_issues_repo_id     ON issues(repo_id)` },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_issues_github_id   ON issues(github_id)` },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_issues_solvability ON issues(llm_solvability)` },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_issues_updated_at  ON issues(updated_at)` },
     ],
     'write'
   )

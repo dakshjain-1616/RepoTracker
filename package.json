@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "@libsql/client": "^0.17.0",
     "@octokit/rest": "^21.0.2",
     "@radix-ui/react-dialog": "^1.1.2",
