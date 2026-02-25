@@ -82,6 +82,7 @@ export interface Issue {
   is_aiml_issue: number | null       // 1 | 0 | null (unclassified)
   aiml_categories: AimlCategory[] | null  // deserialized from JSON
   aiml_classified_at: string | null
+  neo_approach: string | null        // 1-2 lines on how NEO can solve this issue
 }
 
 export interface IssueWithRepo extends Issue {

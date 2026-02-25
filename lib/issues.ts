@@ -274,6 +274,105 @@ Return ONLY the JSON array.`
 }
 
 // ---------------------------------------------------------------------------
+// NEO approach generation via OpenRouter (openai/gpt-oss-120b:free)
+// ---------------------------------------------------------------------------
+
+interface NeoResult {
+  id: number
+  neo_approach: string
+}
+
+export async function generateNeoApproaches(): Promise<void> {
+  const apiKey = process.env.OPENROUTER_API_KEY
+  if (!apiKey) return
+
+  await ensureInit()
+  const db = getDb()
+
+  // Only process issues that have never received a neo_approach
+  const result = await db.execute(`
+    SELECT id, title, body FROM issues
+    WHERE neo_approach IS NULL
+    ORDER BY updated_at DESC
+    LIMIT 50
+  `)
+
+  const rows = result.rows as unknown as Array<{ id: number; title: string; body: string | null }>
+  if (rows.length === 0) return
+
+  console.log(`[Issues] Generating NEO approaches for ${rows.length} issues...`)
+
+  const BATCH_SIZE = 5
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const batch = rows.slice(i, i + BATCH_SIZE)
+
+    const issuesText = batch
+      .map((issue, idx) => {
+        const body = issue.body ? issue.body.slice(0, 400) : ''
+        return `Issue ${idx + 1} (id=${issue.id}):\nTitle: ${issue.title}\nBody: ${body}`
+      })
+      .join('\n\n---\n\n')
+
+    const prompt = `For each GitHub issue below, write 1-2 sentences describing how NEO — an autonomous AI agent that can read entire codebases, write and run code, execute tests, open PRs, and call external APIs — would specifically approach solving it. Be concrete and reference the issue content.
+
+Return ONLY a JSON array (no other text):
+[{ "id": <number>, "neo_approach": "<1-2 sentences, max 200 chars>" }]
+
+Issues:
+${issuesText}
+
+Return ONLY the JSON array.`
+
+    try {
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://github.com/repotracker',
+          'X-Title': 'RepoTracker',
+        },
+        body: JSON.stringify({
+          model: 'openai/gpt-oss-120b',
+          max_tokens: 1024,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      })
+
+      if (!response.ok) {
+        console.warn(`[Issues] OpenRouter NEO batch failed: ${response.status} ${response.statusText}`)
+        continue
+      }
+
+      const json = await response.json() as { choices?: Array<{ message?: { content?: string } }> }
+      const text = json.choices?.[0]?.message?.content ?? ''
+      const jsonMatch = text.match(/\[[\s\S]*\]/)
+      if (!jsonMatch) {
+        console.warn('[Issues] OpenRouter returned no JSON array')
+        continue
+      }
+
+      const results: NeoResult[] = JSON.parse(jsonMatch[0])
+      for (const res of results) {
+        await db.execute({
+          sql: `UPDATE issues SET neo_approach = @neo_approach WHERE id = @id`,
+          args: { neo_approach: res.neo_approach, id: res.id },
+        })
+      }
+    } catch (err) {
+      console.error('[Issues] NEO approach batch failed:', err)
+      // Non-fatal — continue with next batch
+    }
+
+    if (i + BATCH_SIZE < rows.length) {
+      await new Promise(resolve => setTimeout(resolve, 1000))
+    }
+  }
+
+  console.log('[Issues] NEO approach generation complete')
+}
+
+// ---------------------------------------------------------------------------
 // Main sync function
 // ---------------------------------------------------------------------------
 
@@ -396,6 +495,13 @@ export async function syncIssues(batchSize = 25): Promise<number> {
     await classifyAimlIssues()
   } catch (err) {
     console.error('[Issues] AIML classification failed (non-fatal):', err)
+  }
+
+  // NEO approach generation via OpenRouter (non-blocking)
+  try {
+    await generateNeoApproaches()
+  } catch (err) {
+    console.error('[Issues] NEO approach generation failed (non-fatal):', err)
   }
 
   invalidateIssuesCache()

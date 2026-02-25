@@ -35,7 +35,7 @@ export function SyncStatus({ lastSynced, onRefresh }: SyncStatusProps) {
     <div className="flex items-center gap-3">
       <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
         <Clock className="h-3.5 w-3.5" />
-        <span>
+        <span suppressHydrationWarning>
           {lastSynced ? `Synced ${timeAgo(lastSynced)}` : 'Never synced'}
         </span>
       </div>

@@ -128,6 +128,13 @@ export async function ensureInit(): Promise<void> {
     // Column already exists — ignore
   }
 
+  // Migrate: NEO approach column
+  try {
+    await db.execute(`ALTER TABLE issues ADD COLUMN neo_approach TEXT DEFAULT NULL`)
+  } catch {
+    // Column already exists — ignore
+  }
+
   _initialized = true
 }
 

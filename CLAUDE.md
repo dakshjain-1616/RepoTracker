@@ -29,6 +29,7 @@ Local dev uses a file-based SQLite: `file:./data/repos.db`.
 | `TURSO_DATABASE_URL` | Optional | Turso DB URL (e.g. `libsql://...turso.io`). Falls back to local SQLite file |
 | `TURSO_AUTH_TOKEN` | Optional | Required when `TURSO_DATABASE_URL` is set |
 | `ANTHROPIC_API_KEY` | Optional | Enables LLM enrichment of issues (difficulty, solvability, summary) and AIML classification |
+| `OPENROUTER_API_KEY` | Optional | Enables NEO approach generation via `openai/gpt-oss-120b` on OpenRouter |
 | `NEXT_PUBLIC_ENABLE_NEW_INTEGRATION` | Optional | Set to `true` to enable AIML classification + "Solve with New" UI |
 | `NEXT_PUBLIC_NEW_TOOL_URL` | Optional | Base URL for the "New" tool — appended with `?issue=<url>&title=<title>` |
 
@@ -78,6 +79,7 @@ llm_analyzed_at     TEXT           -- timestamp of last LLM analysis
 is_aiml_issue       INTEGER        -- 1 | 0 | NULL (classified by AIML job)
 aiml_categories     TEXT           -- JSON array of category strings
 aiml_classified_at  TEXT           -- timestamp of last AIML classification
+neo_approach        TEXT           -- 1-2 sentences on how NEO can solve this (OpenRouter generated)
 ```
 
 ---
@@ -89,7 +91,7 @@ aiml_classified_at  TEXT           -- timestamp of last AIML classification
 | `lib/db.ts` | libSQL singleton, all DB queries, `ensureInit()`, `getDb()` (exported) |
 | `lib/github.ts` | `runSync()` — syncs static 100 repos |
 | `lib/trending.ts` | `discoverTrending()` — searches GitHub for viral new repos |
-| `lib/issues.ts` | `syncIssues()`, `getIssues()`, LLM enrichment, `classifyAimlIssues()` |
+| `lib/issues.ts` | `syncIssues()`, `getIssues()`, LLM enrichment, `classifyAimlIssues()`, `generateNeoApproaches()` |
 | `lib/constants.ts` | 100 tracked repos (50 AI/ML, 50 SWE) |
 | `types/index.ts` | All TypeScript interfaces |
 
@@ -125,14 +127,17 @@ aiml_classified_at  TEXT           -- timestamp of last AIML classification
 ```typescript
 // POST /api/sync
 const [count, trendingCount] = await Promise.all([runSync(), discoverTrending()])
-const issueCount = await syncIssues()  // sequential — needs fresh trending repos first
+const issueCount = await syncIssues()   // sequential — needs fresh trending repos first
+await generateNeoApproaches()           // always runs, independent of repo cooldown
 ```
 
 `syncIssues()` fetches all open issues (up to 50, no label filter) from all repos, then runs:
 1. LLM enrichment (difficulty, solvability, summary) — requires `ANTHROPIC_API_KEY`
 2. AIML classification (is_aiml_issue, aiml_categories) — requires both `ANTHROPIC_API_KEY` and `NEXT_PUBLIC_ENABLE_NEW_INTEGRATION=true`
 
-Both jobs only process issues that are new or updated since last analysis (smart caching via timestamps).
+`generateNeoApproaches()` is called directly from the sync route (not inside `syncIssues()`) so it always runs even when all repos are on the 12-hour cooldown. It processes up to 50 issues per sync where `neo_approach IS NULL`, using `openai/gpt-oss-120b` via OpenRouter.
+
+Both LLM jobs only process issues that are new or updated since last analysis (smart caching via timestamps).
 
 ---
 
@@ -143,6 +148,7 @@ Clicking it opens `RepoIssuesDrawer` — a slide-in panel from the right showing
 - Repo header (name, stars, forks, category)
 - Compact list of open issues from the DB for that repo (falls back to live GitHub fetch)
 - Difficulty badges, AIML badge, solvability meter per issue
+- **"How NEO can solve this"** amber callout shown inline on every issue row (when `neo_approach` is populated)
 - **"Solve with New" button on ALL issues** (when `NEXT_PUBLIC_ENABLE_NEW_INTEGRATION=true`) — Neo can solve AI/ML, backend, and SWE issues alike
 - Amber card highlight/glow is reserved for AI/ML-classified issues only
 - Pagination + link to all issues on GitHub
@@ -220,12 +226,21 @@ try {
 
 ## LLM Integration
 
+### Anthropic (`ANTHROPIC_API_KEY`)
 - **Model**: `claude-haiku-4-5` (cheap/fast for bulk classification)
-- **Enrichment batch size**: 5 issues per API call
-- **AIML classification batch size**: 10 issues per API call
+- **Enrichment batch size**: 5 issues per API call — generates `llm_summary`, `llm_solvability`, `llm_difficulty`
+- **AIML classification batch size**: 10 issues per API call — generates `is_aiml_issue`, `aiml_categories`
+- Issues are re-analyzed only if `updated_at > llm_analyzed_at` (or `aiml_classified_at`)
+
+### OpenRouter (`OPENROUTER_API_KEY`)
+- **Model**: `openai/gpt-oss-120b` (117B MoE, Apache 2.0)
+- **NEO approach batch size**: 5 issues per API call — generates `neo_approach` (1-2 sentences on how NEO can solve the issue)
+- Only processes issues where `neo_approach IS NULL` (never re-runs on already-processed issues)
+- 50 issues processed per sync call; remainder fills in on subsequent syncs
+
+### Common
 - **Delay between batches**: 1 second
 - **Graceful fallback**: failures are non-fatal; issues still display without enrichment
-- Issues are re-analyzed only if `updated_at > llm_analyzed_at` (or `aiml_classified_at`)
 
 ### AIML Categories
 `agent_building` | `memory_context` | `model_integration` | `training` | `inference` | `embeddings` | `evaluation` | `tools_plugins`

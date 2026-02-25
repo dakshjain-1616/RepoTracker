@@ -95,6 +95,7 @@ export async function GET(request: NextRequest) {
           is_aiml_issue: isAimlRepo ? 1 : 0,
           aiml_categories: null,
           aiml_classified_at: null,
+          neo_approach: null,
           // Repo fields
           repo_stars:    repoData?.stars    ?? 0,
           repo_language: repoData?.language ?? null,

@@ -32,9 +32,8 @@ export function IssueCard({ issue, onSolveWithNew }: IssueCardProps) {
   const labels: string[] = Array.isArray(issue.labels) ? issue.labels : []
   const hasLLM = issue.llm_summary !== null && issue.llm_solvability !== null
   const isAiml = issue.is_aiml_issue === 1
-  const showSolveButton =
-    process.env.NEXT_PUBLIC_ENABLE_NEW_INTEGRATION === 'true' &&
-    !!onSolveWithNew
+  const showNeoIntegration = process.env.NEXT_PUBLIC_ENABLE_NEW_INTEGRATION === 'true'
+  const showSolveButton = showNeoIntegration && !!onSolveWithNew
 
   const bodySnippet = issue.body
     ? issue.body.replace(/<!--[\s\S]*?-->/g, '').replace(/[#*`>\[\]]/g, '').trim().slice(0, 120)
@@ -94,6 +93,17 @@ export function IssueCard({ issue, onSolveWithNew }: IssueCardProps) {
         <div>
           <p className="text-xs text-muted-foreground mb-1">Solvability</p>
           <SolvabilityMeter score={issue.llm_solvability} />
+        </div>
+      )}
+
+      {/* NEO approach */}
+      {issue.neo_approach && (
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 flex gap-2">
+          <Bot className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-[10px] font-semibold text-amber-500/70 uppercase tracking-wide mb-0.5">How NEO can solve this</p>
+            <p className="text-xs text-amber-300/80 leading-relaxed">{issue.neo_approach}</p>
+          </div>
         </div>
       )}
 
