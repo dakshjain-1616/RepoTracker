@@ -33,7 +33,6 @@ export function IssueCard({ issue, onSolveWithNew }: IssueCardProps) {
   const hasLLM = issue.llm_summary !== null && issue.llm_solvability !== null
   const isAiml = issue.is_aiml_issue === 1
   const showSolveButton =
-    isAiml &&
     process.env.NEXT_PUBLIC_ENABLE_NEW_INTEGRATION === 'true' &&
     !!onSolveWithNew
 

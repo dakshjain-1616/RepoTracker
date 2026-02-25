@@ -121,6 +121,13 @@ export async function ensureInit(): Promise<void> {
     // Column already exists — ignore
   }
 
+  // Migrate: per-repo issues sync tracking
+  try {
+    await db.execute(`ALTER TABLE repos ADD COLUMN issues_last_synced_at TEXT DEFAULT NULL`)
+  } catch {
+    // Column already exists — ignore
+  }
+
   _initialized = true
 }
 

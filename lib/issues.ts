@@ -41,31 +41,21 @@ async function fetchIssuesForRepo(
   owner: string,
   repo: string
 ): Promise<GitHubIssue[]> {
-  const seen = new Map<number, GitHubIssue>()
-
-  for (const label of ['good first issue', 'help wanted']) {
-    try {
-      const { data } = await octokit.issues.listForRepo({
-        owner,
-        repo,
-        state: 'open',
-        labels: label,
-        per_page: 30,
-        sort: 'updated',
-        direction: 'desc',
-      })
-      for (const issue of data) {
-        if (!issue.pull_request) {
-          seen.set(issue.id, issue as GitHubIssue)
-        }
-      }
-    } catch (err) {
-      const e = err as { status?: number; message?: string }
-      console.warn(`[Issues] Failed to fetch label "${label}" for ${owner}/${repo}:`, e.message)
-    }
+  try {
+    const { data } = await octokit.issues.listForRepo({
+      owner,
+      repo,
+      state: 'open',
+      per_page: 50,
+      sort: 'updated',
+      direction: 'desc',
+    })
+    return data.filter(i => !i.pull_request) as GitHubIssue[]
+  } catch (err) {
+    const e = err as { status?: number; message?: string }
+    console.warn(`[Issues] Failed to fetch issues for ${owner}/${repo}:`, e.message)
+    return []
   }
-
-  return Array.from(seen.values())
 }
 
 // ---------------------------------------------------------------------------
@@ -287,37 +277,53 @@ Return ONLY the JSON array.`
 // Main sync function
 // ---------------------------------------------------------------------------
 
-export async function syncIssues(): Promise<number> {
+export async function syncIssues(batchSize = 25): Promise<number> {
   console.log('[Issues] Starting issue sync...')
   await ensureInit()
   const db = getDb()
 
-  // Get trending repos from last 6 months
-  const trendingResult = await db.execute(`
-    SELECT id, owner, name, full_name
-    FROM repos
-    WHERE source = 'discovered'
-      AND created_at >= datetime('now', '-6 months')
-  `)
+  // Pick the next batch of repos to sync, prioritized by:
+  //   1. Never-synced issues first
+  //   2. Trending (discovered) before static
+  //   3. Stalest sync time first
+  // Repos synced within the last 12 hours are skipped.
+  const reposResult = await db.execute({
+    sql: `
+      SELECT id, owner, name, full_name, source
+      FROM repos
+      WHERE issues_last_synced_at IS NULL
+         OR issues_last_synced_at < datetime('now', '-12 hours')
+      ORDER BY
+        CASE WHEN issues_last_synced_at IS NULL THEN 0 ELSE 1 END ASC,
+        CASE WHEN source = 'discovered' THEN 0 ELSE 1 END ASC,
+        issues_last_synced_at ASC
+      LIMIT @batchSize
+    `,
+    args: { batchSize },
+  })
 
-  const trendingRepos = trendingResult.rows as unknown as Array<{
+  const repos = reposResult.rows as unknown as Array<{
     id: number
     owner: string
     name: string
     full_name: string
+    source: string
   }>
 
-  if (trendingRepos.length === 0) {
-    console.log('[Issues] No trending repos found, skipping issue sync')
+  if (repos.length === 0) {
+    console.log('[Issues] All repos recently synced, skipping issue sync')
     return 0
   }
 
-  console.log(`[Issues] Syncing issues for ${trendingRepos.length} trending repos...`)
+  const trendingCount = repos.filter(r => r.source === 'discovered').length
+  const staticCount = repos.length - trendingCount
+  console.log(`[Issues] Syncing issues for ${repos.length} repos (${trendingCount} trending, ${staticCount} static)...`)
+
   const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN })
   const now = new Date().toISOString()
   let totalCount = 0
 
-  for (const repo of trendingRepos) {
+  for (const repo of repos) {
     const issues = await fetchIssuesForRepo(octokit, repo.owner, repo.name)
 
     for (const issue of issues) {
@@ -346,20 +352,20 @@ export async function syncIssues(): Promise<number> {
             closed_at    = excluded.closed_at,
             last_synced  = excluded.last_synced`,
           args: {
-            github_id:     issue.id,
-            repo_id:       repo.id,
+            github_id:      issue.id,
+            repo_id:        repo.id,
             repo_full_name: repo.full_name,
-            number:        issue.number,
-            title:         issue.title,
-            body:          issue.body,
-            html_url:      issue.html_url,
-            state:         issue.state,
-            labels:        JSON.stringify(labels),
-            comments:      issue.comments,
-            created_at:    issue.created_at,
-            updated_at:    issue.updated_at,
-            closed_at:     issue.closed_at,
-            last_synced:   now,
+            number:         issue.number,
+            title:          issue.title,
+            body:           issue.body,
+            html_url:       issue.html_url,
+            state:          issue.state,
+            labels:         JSON.stringify(labels),
+            comments:       issue.comments,
+            created_at:     issue.created_at,
+            updated_at:     issue.updated_at,
+            closed_at:      issue.closed_at,
+            last_synced:    now,
           },
         })
         totalCount++
@@ -367,6 +373,12 @@ export async function syncIssues(): Promise<number> {
         console.error(`[Issues] Failed to upsert issue #${issue.number} for ${repo.full_name}:`, err)
       }
     }
+
+    // Mark this repo's issues as synced
+    await db.execute({
+      sql: `UPDATE repos SET issues_last_synced_at = @now WHERE id = @id`,
+      args: { now, id: repo.id },
+    })
 
     // Small delay between repos to respect rate limits
     await new Promise(resolve => setTimeout(resolve, 200))

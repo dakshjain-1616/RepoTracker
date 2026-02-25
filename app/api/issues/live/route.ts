@@ -51,64 +51,59 @@ export async function GET(request: NextRequest) {
 
     const isAimlRepo = repoData?.category === 'AI/ML'
 
-    // Fetch live from GitHub
+    // Fetch live from GitHub — all open issues, no label filter
     const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN })
-    const seen = new Map<number, IssueWithRepo>()
+    const allIssues: IssueWithRepo[] = []
 
-    for (const label of ['good first issue', 'help wanted']) {
-      try {
-        const { data } = await octokit.issues.listForRepo({
-          owner,
-          repo: name,
-          state: 'open',
-          labels: label,
-          per_page: 50,
-          sort: 'updated',
-          direction: 'desc',
+    try {
+      const { data } = await octokit.issues.listForRepo({
+        owner,
+        repo: name,
+        state: 'open',
+        per_page: 50,
+        sort: 'updated',
+        direction: 'desc',
+      })
+      for (const issue of data) {
+        if (issue.pull_request) continue
+        const labelNames = (issue.labels as Array<{ name?: string }>)
+          .map(l => l.name ?? '')
+          .filter(Boolean)
+
+        allIssues.push({
+          id: issue.id,
+          github_id: issue.id,
+          repo_id: -1,
+          repo_full_name: repoParam,
+          number: issue.number,
+          title: issue.title,
+          body: issue.body ?? null,
+          html_url: issue.html_url,
+          state: issue.state,
+          labels: labelNames,
+          comments: issue.comments,
+          created_at: issue.created_at,
+          updated_at: issue.updated_at,
+          closed_at: issue.closed_at ?? null,
+          last_synced: new Date().toISOString(),
+          // No LLM enrichment for live issues
+          llm_summary: null,
+          llm_solvability: null,
+          llm_difficulty: null,
+          llm_analyzed_at: null,
+          // AI/ML flag based on repo category
+          is_aiml_issue: isAimlRepo ? 1 : 0,
+          aiml_categories: null,
+          aiml_classified_at: null,
+          // Repo fields
+          repo_stars:    repoData?.stars    ?? 0,
+          repo_language: repoData?.language ?? null,
+          repo_category: repoData?.category ?? 'SWE',
         })
-        for (const issue of data) {
-          if (issue.pull_request || seen.has(issue.id)) continue
-          const labelNames = (issue.labels as Array<{ name?: string }>)
-            .map(l => l.name ?? '')
-            .filter(Boolean)
-
-          seen.set(issue.id, {
-            id: issue.id,
-            github_id: issue.id,
-            repo_id: -1,
-            repo_full_name: repoParam,
-            number: issue.number,
-            title: issue.title,
-            body: issue.body ?? null,
-            html_url: issue.html_url,
-            state: issue.state,
-            labels: labelNames,
-            comments: issue.comments,
-            created_at: issue.created_at,
-            updated_at: issue.updated_at,
-            closed_at: issue.closed_at ?? null,
-            last_synced: new Date().toISOString(),
-            // No LLM enrichment for live issues
-            llm_summary: null,
-            llm_solvability: null,
-            llm_difficulty: null,
-            llm_analyzed_at: null,
-            // AI/ML flag based on repo category
-            is_aiml_issue: isAimlRepo ? 1 : 0,
-            aiml_categories: null,
-            aiml_classified_at: null,
-            // Repo fields
-            repo_stars:    repoData?.stars    ?? 0,
-            repo_language: repoData?.language ?? null,
-            repo_category: repoData?.category ?? 'SWE',
-          })
-        }
-      } catch {
-        // skip label if it fails (repo may not use it)
       }
+    } catch {
+      // non-fatal — return empty
     }
-
-    const allIssues = Array.from(seen.values())
     // Store in cache
     cache.set(repoParam, {
       issues: allIssues,

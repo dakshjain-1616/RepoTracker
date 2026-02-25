@@ -25,7 +25,7 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(days / 30)}mo ago`
 }
 
-// Show Neo button for any AI/ML issue — either classified (DB) or from an AI/ML repo (live)
+// Amber card highlight for AI/ML issues
 function isAimlIssue(issue: IssueWithRepo): boolean {
   return issue.is_aiml_issue === 1 || issue.repo_category === 'AI/ML'
 }
@@ -88,16 +88,14 @@ function IssueRow({ issue, onSolve }: IssueRowProps) {
         </span>
         <span>{timeAgo(issue.updated_at)}</span>
         <div className="ml-auto flex items-center gap-1.5">
-          {/* Neo button — always visible for AI/ML issues */}
-          {aiml && (
-            <button
-              onClick={() => onSolve(issue)}
-              className="flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/30 px-2 py-0.5 text-xs font-semibold text-amber-400 transition-colors"
-            >
-              <Bot className="h-3 w-3" />
-              Solve with New
-            </button>
-          )}
+          {/* Neo button — visible for all issues */}
+          <button
+            onClick={() => onSolve(issue)}
+            className="flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/30 px-2 py-0.5 text-xs font-semibold text-amber-400 transition-colors"
+          >
+            <Bot className="h-3 w-3" />
+            Solve with New
+          </button>
           <a
             href={issue.html_url}
             target="_blank"
@@ -262,9 +260,9 @@ export function RepoIssuesDrawer({ repo, onClose }: RepoIssuesDrawerProps) {
             </div>
           ) : issues.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 gap-2 text-muted-foreground">
-              <p className="text-sm font-medium">No labeled issues found</p>
+              <p className="text-sm font-medium">No open issues found</p>
               <p className="text-xs text-center max-w-xs">
-                No open issues with <em>good first issue</em> or <em>help wanted</em> labels were found.
+                This repo has no open issues right now.
               </p>
               {repo && (
                 <a
@@ -281,12 +279,12 @@ export function RepoIssuesDrawer({ repo, onClose }: RepoIssuesDrawerProps) {
             <div className="flex flex-col gap-3">
               {isLive && (
                 <p className="text-xs text-muted-foreground">
-                  Fetched live from GitHub · good first issue / help wanted
+                  Fetched live from GitHub · most recently updated
                 </p>
               )}
               {!isLive && (
                 <p className="text-xs text-muted-foreground">
-                  {total} labeled issue{total !== 1 ? 's' : ''} · good first issue / help wanted
+                  {total} open issue{total !== 1 ? 's' : ''} · most recently updated
                 </p>
               )}
               {issues.map(issue => (

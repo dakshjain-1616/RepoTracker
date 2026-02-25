@@ -34,6 +34,7 @@ Local dev uses a file-based SQLite: `file:./data/repos.db`.
 
 Without `ANTHROPIC_API_KEY`, issues still display but without difficulty badges, solvability scores, or summaries.
 Without `NEXT_PUBLIC_ENABLE_NEW_INTEGRATION=true`, the AI/ML badge, classification job, and "Solve with New" button are hidden.
+The "Solve with New" button appears on **all** issues (not just AI/ML) — Neo handles backend and SWE issues too.
 
 ---
 
@@ -127,8 +128,7 @@ const [count, trendingCount] = await Promise.all([runSync(), discoverTrending()]
 const issueCount = await syncIssues()  // sequential — needs fresh trending repos first
 ```
 
-`syncIssues()` fetches open issues labeled `good first issue` or `help wanted` from trending repos
-(source='discovered', created within 6 months), then runs:
+`syncIssues()` fetches all open issues (up to 50, no label filter) from all repos, then runs:
 1. LLM enrichment (difficulty, solvability, summary) — requires `ANTHROPIC_API_KEY`
 2. AIML classification (is_aiml_issue, aiml_categories) — requires both `ANTHROPIC_API_KEY` and `NEXT_PUBLIC_ENABLE_NEW_INTEGRATION=true`
 
@@ -141,9 +141,10 @@ Both jobs only process issues that are new or updated since last analysis (smart
 Each repo row in the leaderboard has an **Issues button** (BookOpen icon + open_issues count).
 Clicking it opens `RepoIssuesDrawer` — a slide-in panel from the right showing:
 - Repo header (name, stars, forks, category)
-- Compact list of labeled issues from the DB for that repo
+- Compact list of open issues from the DB for that repo (falls back to live GitHub fetch)
 - Difficulty badges, AIML badge, solvability meter per issue
-- "Solve with New" button on AI/ML issues (when `NEXT_PUBLIC_ENABLE_NEW_INTEGRATION=true`)
+- **"Solve with New" button on ALL issues** (when `NEXT_PUBLIC_ENABLE_NEW_INTEGRATION=true`) — Neo can solve AI/ML, backend, and SWE issues alike
+- Amber card highlight/glow is reserved for AI/ML-classified issues only
 - Pagination + link to all issues on GitHub
 
 Issues are fetched via `GET /api/issues?repo=owner/repo`.
@@ -152,6 +153,68 @@ Issues are fetched via `GET /api/issues?repo=owner/repo`.
 
 Separate page showing all labeled issues across all trending repos.
 Supports filtering by difficulty, AI/ML only, search, and sort.
+
+---
+
+## Issues Feature — Implementation Details
+
+### Sync strategy (`syncIssues()` in `lib/issues.ts`)
+
+`syncIssues(batchSize=25)` processes up to 25 repos per sync call using a **per-repo cooldown**:
+
+```sql
+-- Skip repos synced within the last 12 hours
+WHERE issues_last_synced_at IS NULL
+   OR issues_last_synced_at < datetime('now', '-12 hours')
+-- Priority order:
+ORDER BY
+  CASE WHEN issues_last_synced_at IS NULL THEN 0 ELSE 1 END ASC,  -- never-synced first
+  CASE WHEN source = 'discovered' THEN 0 ELSE 1 END ASC,           -- trending before static
+  issues_last_synced_at ASC                                         -- stalest first
+```
+
+The `repos.issues_last_synced_at` column is updated after each repo's issues are fetched.
+A 200 ms delay is inserted between repos to respect GitHub rate limits.
+
+### Issues fetched
+All open issues are fetched (up to 50 per repo, sorted by `updated` desc). PRs are filtered out via the `pull_request` field check. No label filter is applied — this ensures the drawer always shows content.
+
+### Upsert semantics (no accidental LLM overwrite)
+
+Issues are upserted by `github_id` (UNIQUE). The `ON CONFLICT` clause **only** updates mutable GitHub fields:
+
+```sql
+ON CONFLICT(github_id) DO UPDATE SET
+  title, body, state, labels, comments, updated_at, closed_at, last_synced
+  -- LLM fields (llm_summary, llm_solvability, llm_difficulty, llm_analyzed_at,
+  --             is_aiml_issue, aiml_categories, aiml_classified_at) are NOT touched here
+```
+
+LLM fields are written exclusively by the enrichment/classification jobs, which run after the upsert loop.
+
+### Change detection for LLM work
+
+Both LLM jobs skip issues that haven't changed since last analysis:
+
+```sql
+-- Enrichment: only issues new or updated since last LLM analysis
+WHERE llm_analyzed_at IS NULL OR updated_at > llm_analyzed_at
+
+-- AIML classification: same pattern
+WHERE aiml_classified_at IS NULL OR updated_at > aiml_classified_at
+```
+
+This means repeated syncs are cheap — no redundant LLM calls for stable issues.
+
+### DB migration pattern
+
+`ensureInit()` in `lib/db.ts` uses `ALTER TABLE ADD COLUMN` wrapped in try/catch for additive, idempotent schema migrations. Any column that already exists silently continues. New columns always have `DEFAULT NULL` or a safe default.
+
+```typescript
+try {
+  await db.execute(`ALTER TABLE issues ADD COLUMN is_aiml_issue INTEGER DEFAULT NULL`)
+} catch { /* column already exists — ignore */ }
+```
 
 ---
 
