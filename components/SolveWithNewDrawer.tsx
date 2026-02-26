@@ -127,7 +127,8 @@ export function SolveWithNewDrawer({ issue, onClose }: SolveWithNewDrawerProps) 
                   rel="noopener noreferrer"
                   className="text-base font-bold leading-snug hover:text-primary transition-colors"
                 >
-                  #{issue.number} {issue.title}
+                  {issue.number > 0 && <span className="text-muted-foreground font-normal">#{issue.number} </span>}
+                  {issue.title}
                 </a>
               </div>
 

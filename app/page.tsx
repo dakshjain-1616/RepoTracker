@@ -1,6 +1,6 @@
 import { getRepos, getLastSynced } from '@/lib/db'
 import { LeaderboardTable } from '@/components/LeaderboardTable'
-import { Github, BookOpen } from 'lucide-react'
+import { Github, BookOpen, Sparkles, Bot, TrendingUp } from 'lucide-react'
 import Link from 'next/link'
 import type { ApiResponse } from '@/types'
 
@@ -62,6 +62,36 @@ export default async function Home() {
 
       {/* Main content */}
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
+        {/* Feature strip — tells first-time users what this app can do */}
+        <div className="mb-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 px-4 py-3 flex items-start gap-3">
+            <Sparkles className="h-4 w-4 text-purple-400 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs font-semibold text-foreground">✦ Innovation Intel</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                AI scans open issues in trending repos and groups them into bug themes, feature patterns, and improvement opportunities.
+              </p>
+            </div>
+          </div>
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 flex items-start gap-3">
+            <Bot className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs font-semibold text-foreground">NEO Build Plans</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Every issue gets an AI-generated step-by-step plan — concrete actions, time estimate, and confidence score — so you can start building immediately.
+              </p>
+            </div>
+          </div>
+          <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-4 py-3 flex items-start gap-3">
+            <TrendingUp className="h-4 w-4 text-blue-400 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs font-semibold text-foreground">Live Trending</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Discovers viral GitHub repos before they hit mainstream. Scored by star velocity — find the next hot project early.
+              </p>
+            </div>
+          </div>
+        </div>
         <LeaderboardTable initialData={initialData} />
       </div>
 

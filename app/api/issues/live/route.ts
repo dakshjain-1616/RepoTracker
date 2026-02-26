@@ -96,6 +96,7 @@ export async function GET(request: NextRequest) {
           aiml_categories: null,
           aiml_classified_at: null,
           neo_approach: null,
+          opportunity_type: null,
           // Repo fields
           repo_stars:    repoData?.stars    ?? 0,
           repo_language: repoData?.language ?? null,

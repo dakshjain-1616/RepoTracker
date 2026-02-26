@@ -135,6 +135,32 @@ export async function ensureInit(): Promise<void> {
     // Column already exists — ignore
   }
 
+  // Migrate: opportunity type classification column
+  try {
+    await db.execute(`ALTER TABLE issues ADD COLUMN opportunity_type TEXT DEFAULT NULL`)
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Migrate: per-repo LLM opportunity insights
+  try {
+    await db.execute(`ALTER TABLE repos ADD COLUMN opportunity_insights TEXT DEFAULT NULL`)
+  } catch {
+    // Column already exists — ignore
+  }
+  try {
+    await db.execute(`ALTER TABLE repos ADD COLUMN insights_generated_at TEXT DEFAULT NULL`)
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Migrate: NEO approach freshness tracking
+  try {
+    await db.execute(`ALTER TABLE issues ADD COLUMN neo_generated_at TEXT DEFAULT NULL`)
+  } catch {
+    // Column already exists — ignore
+  }
+
   _initialized = true
 }
 
@@ -238,9 +264,28 @@ export async function insertStarHistory(
 ): Promise<void> {
   await ensureInit()
   const db = getDb()
+
+  // Deduplication: skip insert if stars+forks unchanged and last snapshot < 6 hours old
+  const last = await db.execute({
+    sql: `SELECT stars, forks, recorded_at FROM star_history
+          WHERE repo_id = @repo_id ORDER BY recorded_at DESC LIMIT 1`,
+    args: { repo_id: repoId },
+  })
+  const prev = last.rows[0] as unknown as
+    | { stars: number; forks: number; recorded_at: string }
+    | undefined
+  const sixHoursAgo = Date.now() - 6 * 60 * 60 * 1000
+  if (
+    prev &&
+    Number(prev.stars) === stars &&
+    Number(prev.forks) === forks &&
+    new Date(prev.recorded_at).getTime() > sixHoursAgo
+  ) return
+
   await db.execute({
-    sql: `INSERT INTO star_history (repo_id, stars, forks, recorded_at) VALUES (?, ?, ?, ?)`,
-    args: [repoId, stars, forks, new Date().toISOString()],
+    sql: `INSERT INTO star_history (repo_id, stars, forks, recorded_at)
+          VALUES (@repo_id, @stars, @forks, @recorded_at)`,
+    args: { repo_id: repoId, stars, forks, recorded_at: new Date().toISOString() },
   })
 }
 
@@ -287,7 +332,8 @@ export async function getRepos(
   if (cached && cached.expiresAt > Date.now()) return cached.data
 
   const db = getDb()
-  const isTrending = category === 'trending'
+  const isTrending   = category === 'trending'
+  const isInnovation = category === 'innovation'
 
   const innerConditions: string[] = []
   const args: Record<string, string | number> = {}
@@ -295,6 +341,10 @@ export async function getRepos(
   if (isTrending) {
     innerConditions.push("r.source = 'discovered'")
     innerConditions.push("r.created_at >= datetime('now', '-6 months')")
+  } else if (isInnovation) {
+    // Repos with AI-generated opportunity insights (top 5 trending only)
+    innerConditions.push("r.source = 'discovered'")
+    innerConditions.push('r.opportunity_insights IS NOT NULL')
   } else if (category && category !== 'all') {
     innerConditions.push('r.category = @category')
     args.category = category
@@ -365,6 +415,9 @@ export async function getRepos(
   const repos = (rowsResult.rows as unknown as RepoWithGrowth[]).map(r => ({
     ...r,
     topics: r.topics ? JSON.parse(r.topics as unknown as string) : [],
+    opportunity_insights: r.opportunity_insights
+      ? JSON.parse(r.opportunity_insights as unknown as string)
+      : null,
   }))
   const total = Number(countResult.rows[0].count)
 

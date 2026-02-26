@@ -32,6 +32,8 @@ Local dev uses a file-based SQLite: `file:./data/repos.db`.
 | `OPENROUTER_API_KEY` | Optional | Enables NEO approach generation via `openai/gpt-oss-120b` on OpenRouter |
 | `NEXT_PUBLIC_ENABLE_NEW_INTEGRATION` | Optional | Set to `true` to enable AIML classification + "Solve with New" UI |
 | `NEXT_PUBLIC_NEW_TOOL_URL` | Optional | Base URL for the "New" tool — appended with `?issue=<url>&title=<title>` |
+| `SYNC_INTERVAL_HOURS` | Optional | How often the background scheduler runs a full sync (default: `2`). Set to `0.25` for 15-min during initial backfill, increase to `6`–`12` once data is stable |
+| `SYNC_ON_STARTUP` | Optional | Set to `false` to skip the immediate sync on server start (default: runs at startup) |
 
 Without `ANTHROPIC_API_KEY`, issues still display but without difficulty badges, solvability scores, or summaries.
 Without `NEXT_PUBLIC_ENABLE_NEW_INTEGRATION=true`, the AI/ML badge, classification job, and "Solve with New" button are hidden.
@@ -226,6 +228,7 @@ try {
 
 ## LLM Integration
 
+
 ### Anthropic (`ANTHROPIC_API_KEY`)
 - **Model**: `claude-haiku-4-5` (cheap/fast for bulk classification)
 - **Enrichment batch size**: 5 issues per API call — generates `llm_summary`, `llm_solvability`, `llm_difficulty`
@@ -274,3 +277,4 @@ await db.execute({
 ### In-memory caching
 Both `lib/db.ts` and `lib/issues.ts` use 60-second in-memory caches invalidated on sync.
 Cache key in `getIssues()` includes all filter params including `repo` and `aiml`.
+

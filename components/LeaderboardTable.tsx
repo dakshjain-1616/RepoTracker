@@ -1,12 +1,21 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { Search, Sparkles } from 'lucide-react'
 import { RepoRow } from './RepoRow'
 import { FilterBar } from './FilterBar'
 import { SyncStatus } from './SyncStatus'
 import { StatsHeader } from './StatsHeader'
 import { RepoIssuesDrawer } from './RepoIssuesDrawer'
 import type { Repo, ApiResponse, CategoryFilter, SortField } from '@/types'
+import { safeJson } from '@/lib/utils'
+
+const SORT_OPTIONS: { value: SortField; label: string }[] = [
+  { value: 'stars', label: 'Stars' },
+  { value: 'forks', label: 'Forks' },
+  { value: 'growth24h', label: '24h Growth' },
+  { value: 'growth7d', label: '7d Growth' },
+]
 
 interface LeaderboardTableProps {
   initialData: ApiResponse
@@ -48,7 +57,7 @@ export function LeaderboardTable({ initialData }: LeaderboardTableProps) {
         limit: limit.toString(),
       })
       const res = await fetch(`/api/repos?${params}`)
-      const data: ApiResponse = await res.json()
+      const data: ApiResponse = await safeJson<ApiResponse>(res)
       setRepos(data.repos)
       setTotal(data.total)
       setLastSynced(data.lastSynced)
@@ -97,17 +106,54 @@ export function LeaderboardTable({ initialData }: LeaderboardTableProps) {
       {/* Stats */}
       <StatsHeader repos={repos} total={total} />
 
+      {/* Innovation tab contextual banner */}
+      {category === 'innovation' && (
+        <div className="flex items-start gap-3 rounded-xl border border-purple-500/20 bg-purple-500/5 px-4 py-3">
+          <Sparkles className="h-4 w-4 text-purple-400 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-xs font-semibold text-purple-300 mb-0.5">AI-selected build opportunities</p>
+            <p className="text-xs text-muted-foreground">
+              These trending repos have been analyzed by AI to surface the most interesting open problems. Click the{' '}
+              <span className="text-foreground font-medium">Issues</span> button on any repo to see AI-grouped themes, individual issues scored for solvability, and a step-by-step NEO build plan for each one.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Controls */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <FilterBar
-          category={category}
-          sort={sort}
-          search={search}
-          onCategoryChange={handleCategoryChange}
-          onSortChange={handleSortChange}
-          onSearchChange={handleSearchChange}
-        />
-        <SyncStatus lastSynced={lastSynced} onRefresh={() => fetchRepos()} />
+      <div className="flex flex-col gap-2">
+        {/* Row 1: Category tabs + Sync status */}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <FilterBar
+            category={category}
+            onCategoryChange={handleCategoryChange}
+          />
+          <SyncStatus lastSynced={lastSynced} onRefresh={() => fetchRepos()} />
+        </div>
+        {/* Row 2: Search + Sort (right-aligned) */}
+        <div className="flex items-center gap-3 justify-end">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search repos..."
+              value={search}
+              onChange={e => handleSearchChange(e.target.value)}
+              className="w-48 rounded-lg border border-border bg-background/50 py-1.5 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+          <select
+            value={sort}
+            onChange={e => handleSortChange(e.target.value as SortField)}
+            className="rounded-lg border border-border bg-background/50 py-1.5 px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+          >
+            {SORT_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>
+                Sort: {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Table */}

@@ -5,16 +5,19 @@ import { IssueCard } from './IssueCard'
 import { IssuesFilterBar } from './IssuesFilterBar'
 import { SyncStatus } from './SyncStatus'
 import { SolveWithNewDrawer } from './SolveWithNewDrawer'
+import { FeaturedOpportunities } from './FeaturedOpportunities'
 import { ChevronLeft, ChevronRight, Loader2, Bot } from 'lucide-react'
 import type { IssueWithRepo, IssueStats, IssuesApiResponse } from '@/types'
+import { safeJson } from '@/lib/utils'
 
 const LIMIT = 24
 
 interface IssuesLedgerProps {
   initialData: IssuesApiResponse
+  featured?: IssueWithRepo[]
 }
 
-export function IssuesLedger({ initialData }: IssuesLedgerProps) {
+export function IssuesLedger({ initialData, featured }: IssuesLedgerProps) {
   const [issues, setIssues]         = useState<IssueWithRepo[]>(initialData.issues)
   const [total, setTotal]           = useState(initialData.total)
   const [lastSynced, setLastSynced] = useState<string | null>(initialData.lastSynced ?? null)
@@ -44,8 +47,7 @@ export function IssuesLedger({ initialData }: IssuesLedgerProps) {
       if (aiml)  params.set('aiml', 'true')
 
       const res = await fetch(`/api/issues?${params}`)
-      if (!res.ok) throw new Error('Failed to fetch')
-      const data: IssuesApiResponse = await res.json()
+      const data: IssuesApiResponse = await safeJson<IssuesApiResponse>(res)
       setIssues(data.issues)
       setTotal(data.total)
       if (data.lastSynced !== undefined) setLastSynced(data.lastSynced ?? null)
@@ -88,6 +90,14 @@ export function IssuesLedger({ initialData }: IssuesLedgerProps) {
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Featured Opportunities hero section */}
+      {featured && featured.length > 0 && (
+        <FeaturedOpportunities
+          issues={featured}
+          onSolveWithNew={newEnabled ? setDrawerIssue : undefined}
+        />
+      )}
+
       {/* Top bar: stats + sync */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
         {stats && (totalAnalyzed > 0 || stats.aiml > 0) ? (

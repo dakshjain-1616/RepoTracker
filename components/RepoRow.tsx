@@ -7,7 +7,7 @@ import type { Repo } from '@/types'
 import { StarBadge } from './StarBadge'
 import { TrendBadge } from './TrendBadge'
 import { Sparkline } from './Sparkline'
-import { formatStars, truncate, LANGUAGE_COLORS } from '@/lib/utils'
+import { formatStars, truncate, LANGUAGE_COLORS, safeJson } from '@/lib/utils'
 import type { StarHistory } from '@/types'
 
 interface RepoRowProps {
@@ -18,46 +18,19 @@ interface RepoRowProps {
 
 function RankBadge({ rank, index }: { rank: number | null; index: number }) {
   const displayRank = rank ?? index + 1
-
-  if (displayRank === 1) {
-    return (
-      <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-yellow-400/20 text-yellow-400 text-sm font-bold">
-        1
-      </span>
-    )
-  }
-  if (displayRank === 2) {
-    return (
-      <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-400/20 text-slate-300 text-sm font-bold">
-        2
-      </span>
-    )
-  }
-  if (displayRank === 3) {
-    return (
-      <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-orange-700/20 text-orange-500 text-sm font-bold">
-        3
-      </span>
-    )
-  }
-  return (
-    <span className="inline-flex h-7 w-7 items-center justify-center text-muted-foreground text-sm font-mono">
-      {displayRank}
-    </span>
-  )
+  if (displayRank === 1) return <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-yellow-400/20 text-yellow-400 text-sm font-bold">1</span>
+  if (displayRank === 2) return <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-400/20 text-slate-300 text-sm font-bold">2</span>
+  if (displayRank === 3) return <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-orange-700/20 text-orange-500 text-sm font-bold">3</span>
+  return <span className="inline-flex h-7 w-7 items-center justify-center text-muted-foreground text-sm font-mono">{displayRank}</span>
 }
 
 function CategoryPill({ category }: { category: string }) {
   return (
-    <span
-      className={`
-        inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium
-        ${category === 'AI/ML'
-          ? 'bg-purple-500/15 text-purple-400 border border-purple-500/20'
-          : 'bg-blue-500/15 text-blue-400 border border-blue-500/20'
-        }
-      `}
-    >
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+      category === 'AI/ML'
+        ? 'bg-purple-500/15 text-purple-400 border border-purple-500/20'
+        : 'bg-blue-500/15 text-blue-400 border border-blue-500/20'
+    }`}>
       {category}
     </span>
   )
@@ -68,10 +41,7 @@ function LanguageDot({ language }: { language: string | null }) {
   const color = LANGUAGE_COLORS[language] || '#6b7280'
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-      <span
-        className="inline-block h-2.5 w-2.5 rounded-full flex-shrink-0"
-        style={{ backgroundColor: color }}
-      />
+      <span className="inline-block h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
       {language}
     </span>
   )
@@ -86,7 +56,7 @@ export function RepoRow({ repo, index, onViewIssues }: RepoRowProps) {
     setLoadingHistory(true)
     try {
       const res = await fetch(`/api/history/${repo.owner}/${repo.name}`)
-      const data = await res.json()
+      const data = await safeJson<{ history?: StarHistory[] }>(res)
       setHistory(data.history ?? [])
     } catch {
       setHistory([])

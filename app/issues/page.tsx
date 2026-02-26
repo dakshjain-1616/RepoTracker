@@ -1,18 +1,23 @@
-import { getIssues } from '@/lib/issues'
+import { getIssues, getFeaturedIssues } from '@/lib/issues'
 import { IssuesLedger } from '@/components/IssuesLedger'
 import { Github, BookOpen } from 'lucide-react'
 import Link from 'next/link'
-import type { IssuesApiResponse } from '@/types'
+import type { IssuesApiResponse, IssueWithRepo } from '@/types'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 export default async function IssuesPage() {
   let initialData: IssuesApiResponse
+  let featured: IssueWithRepo[] = []
 
   try {
-    const { issues, total, lastSynced, stats } = await getIssues({ page: 1, limit: 24 })
+    const [{ issues, total, lastSynced, stats }, featuredIssues] = await Promise.all([
+      getIssues({ page: 1, limit: 24 }),
+      getFeaturedIssues(5).catch(() => []),
+    ])
     initialData = { issues, total, page: 1, limit: 24, lastSynced, stats }
+    featured = featuredIssues
   } catch {
     initialData = { issues: [], total: 0, page: 1, limit: 24 }
   }
@@ -59,7 +64,7 @@ export default async function IssuesPage() {
             <span className="font-medium text-foreground">help wanted</span> labels.
           </p>
         </div>
-        <IssuesLedger initialData={initialData} />
+        <IssuesLedger initialData={initialData} featured={featured} />
       </div>
 
       {/* Footer */}

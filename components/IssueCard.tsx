@@ -1,10 +1,12 @@
 'use client'
 
-import { MessageSquare, ExternalLink, Clock, Bot } from 'lucide-react'
+import { useState } from 'react'
+import { MessageSquare, ExternalLink, Clock, Bot, ChevronDown } from 'lucide-react'
 import { DifficultyBadge } from './DifficultyBadge'
 import { AimlBadge } from './AimlBadge'
 import { SolvabilityMeter } from './SolvabilityMeter'
-import type { IssueWithRepo, IssueDifficulty } from '@/types'
+import { parseNeoApproach } from '@/lib/utils'
+import type { IssueWithRepo, IssueDifficulty, NeoApproachStructured } from '@/types'
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime()
@@ -29,11 +31,16 @@ interface IssueCardProps {
 }
 
 export function IssueCard({ issue, onSolveWithNew }: IssueCardProps) {
+  const [neoExpanded, setNeoExpanded] = useState(false)
+
   const labels: string[] = Array.isArray(issue.labels) ? issue.labels : []
   const hasLLM = issue.llm_summary !== null && issue.llm_solvability !== null
   const isAiml = issue.is_aiml_issue === 1
   const showNeoIntegration = process.env.NEXT_PUBLIC_ENABLE_NEW_INTEGRATION === 'true'
   const showSolveButton = showNeoIntegration && !!onSolveWithNew
+
+  const parsed = parseNeoApproach(issue.neo_approach)
+  const neoStruct = (parsed !== null && typeof parsed === 'object') ? parsed as NeoApproachStructured : null
 
   const bodySnippet = issue.body
     ? issue.body.replace(/<!--[\s\S]*?-->/g, '').replace(/[#*`>\[\]]/g, '').trim().slice(0, 120)
@@ -96,14 +103,60 @@ export function IssueCard({ issue, onSolveWithNew }: IssueCardProps) {
         </div>
       )}
 
-      {/* NEO approach */}
-      {issue.neo_approach && (
-        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 flex gap-2">
-          <Bot className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
-          <div>
-            <p className="text-[10px] font-semibold text-amber-500/70 uppercase tracking-wide mb-0.5">How NEO can solve this</p>
-            <p className="text-xs text-amber-300/80 leading-relaxed">{issue.neo_approach}</p>
-          </div>
+      {/* NEO approach accordion */}
+      {parsed !== null && (
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 overflow-hidden">
+          {/* Header — always visible, click to expand */}
+          <button
+            onClick={() => setNeoExpanded(v => !v)}
+            className="w-full flex items-center gap-2 px-3 py-2 text-left"
+          >
+            <Bot className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-semibold text-amber-500/70 uppercase tracking-wide">
+                How NEO can solve this
+              </p>
+              {neoStruct && !neoExpanded && (
+                <p className="text-xs text-amber-300/80 line-clamp-1 mt-0.5">
+                  {neoStruct.summary}
+                </p>
+              )}
+            </div>
+            <ChevronDown
+              className={`h-3.5 w-3.5 text-amber-400 shrink-0 transition-transform duration-200 ${
+                neoExpanded ? 'rotate-180' : ''
+              }`}
+            />
+          </button>
+
+          {/* Expanded body */}
+          {neoExpanded && (
+            <div className="px-3 pb-3 pt-1 border-t border-amber-500/10 flex flex-col gap-2">
+              {neoStruct ? (
+                <>
+                  <p className="text-xs text-amber-300/80 leading-relaxed">{neoStruct.summary}</p>
+                  <ol className="space-y-1">
+                    {neoStruct.steps.map((step, i) => (
+                      <li key={i} className="flex gap-1.5 text-xs text-amber-300/80">
+                        <span className="text-amber-500/50 font-mono shrink-0">{i + 1}.</span>
+                        {step}
+                      </li>
+                    ))}
+                  </ol>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-400">
+                      ⏱ {neoStruct.effort}
+                    </span>
+                    <span className="rounded-full border border-green-500/20 bg-green-500/10 px-2 py-0.5 text-[10px] text-green-400">
+                      ✓ {neoStruct.confidence}/10
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-amber-300/80 leading-relaxed">{parsed as string}</p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
