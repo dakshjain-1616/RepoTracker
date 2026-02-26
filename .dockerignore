@@ -1,9 +1,15 @@
 node_modules/
 .next/
+dist/
 data/*.db
+data/*.db-shm
+data/*.db-wal
 .env
 .env.local
 .git/
 .gitignore
-README.md
 *.md
+docker-compose.yml
+railway.json
+vercel.json
+.claude/

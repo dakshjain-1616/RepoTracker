@@ -4,10 +4,28 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     envVars:
+      # Required
       - key: GITHUB_TOKEN
         sync: false
       - key: NODE_ENV
         value: production
+      # Optional — enables LLM issue enrichment (difficulty, solvability, summaries, AIML classification)
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # Optional — enables NEO approach generation via openai/gpt-oss-120b on OpenRouter
+      - key: OPENROUTER_API_KEY
+        sync: false
+      # Optional — set to "true" to enable AIML classification badge + "Solve with New" UI
+      - key: NEXT_PUBLIC_ENABLE_NEW_INTEGRATION
+        sync: false
+      # Optional — base URL for the NEO tool (appended with ?issue=<url>&title=<title>)
+      - key: NEXT_PUBLIC_NEW_TOOL_URL
+        sync: false
+      # Optional — Turso cloud DB (falls back to local SQLite on the mounted disk)
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
     healthCheckPath: /api/repos
     disk:
       name: sqlite-data
