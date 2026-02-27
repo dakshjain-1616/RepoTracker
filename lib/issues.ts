@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { Octokit } from '@octokit/rest'
 import { ensureInit, getDb, invalidateQueryCache, getLastSynced } from './db'
 import type { IssueWithRepo, IssueStats, AimlCategory, IssueDifficulty, NeoApproachStructured } from '../types'
@@ -103,17 +104,19 @@ async function enrichIssuesWithLLM(): Promise<void> {
   await ensureInit()
   const db = getDb()
 
-  // Fetch issues that haven't been analyzed or have updates since last analysis
+  // Fetch issues whose content has changed since last LLM analysis
   const result = await db.execute(`
-    SELECT id, title, body FROM issues
-    WHERE llm_analyzed_at IS NULL OR updated_at > llm_analyzed_at
+    SELECT id, title, body, content_hash FROM issues
+    WHERE content_hash IS NOT NULL
+      AND (llm_content_hash IS NULL OR llm_content_hash != content_hash)
     ORDER BY updated_at DESC
     LIMIT 200
   `)
 
-  const rows = result.rows as unknown as Array<{ id: number; title: string; body: string | null }>
+  const rows = result.rows as unknown as Array<{ id: number; title: string; body: string | null; content_hash: string | null }>
   if (rows.length === 0) return
 
+  const hashById = new Map(rows.map(r => [r.id, r.content_hash]))
   console.log(`[Issues] Enriching ${rows.length} issues with LLM...`)
 
   const BATCH_SIZE = 5
@@ -157,23 +160,26 @@ Return ONLY the JSON array.`
       const results: LLMResult[] = JSON.parse(jsonMatch[0])
       const now = new Date().toISOString()
 
-      for (const res of results) {
-        await db.execute({
+      await db.batch(
+        results.map(res => ({
           sql: `UPDATE issues SET
             llm_summary      = @summary,
             llm_solvability  = @solvability,
             llm_difficulty   = @difficulty,
-            llm_analyzed_at  = @analyzed_at
+            llm_analyzed_at  = @now,
+            llm_content_hash = @chash
           WHERE id = @id`,
           args: {
             summary:     res.summary,
             solvability: res.solvability,
             difficulty:  res.difficulty,
-            analyzed_at: now,
+            now,
+            chash:       hashById.get(res.id) ?? null,
             id:          res.id,
           },
-        })
-      }
+        })),
+        'write'
+      )
     } catch (err) {
       console.error('[Issues] LLM enrichment batch failed:', err)
       // Non-fatal — continue with next batch
@@ -209,18 +215,20 @@ async function classifyAimlIssues(): Promise<void> {
   await ensureInit()
   const db = getDb()
 
-  // Only classify issues that are new or updated since last classification
+  // Only classify issues whose content has changed since last classification
   const result = await db.execute(`
-    SELECT id, title, body FROM issues
+    SELECT id, title, body, content_hash FROM issues
     WHERE state = 'open'
-      AND (aiml_classified_at IS NULL OR updated_at > aiml_classified_at)
+      AND content_hash IS NOT NULL
+      AND (aiml_content_hash IS NULL OR aiml_content_hash != content_hash)
     ORDER BY updated_at DESC
     LIMIT 200
   `)
 
-  const rows = result.rows as unknown as Array<{ id: number; title: string; body: string | null }>
+  const rows = result.rows as unknown as Array<{ id: number; title: string; body: string | null; content_hash: string | null }>
   if (rows.length === 0) return
 
+  const hashById = new Map(rows.map(r => [r.id, r.content_hash]))
   console.log(`[Issues] Classifying ${rows.length} issues for AI/ML relevance...`)
 
   const BATCH_SIZE = 10
@@ -268,21 +276,24 @@ Return ONLY the JSON array.`
       const results: AimlClassificationResult[] = JSON.parse(jsonMatch[0])
       const now = new Date().toISOString()
 
-      for (const res of results) {
-        await db.execute({
+      await db.batch(
+        results.map(res => ({
           sql: `UPDATE issues SET
             is_aiml_issue      = @is_aiml,
             aiml_categories    = @categories,
-            aiml_classified_at = @classified_at
+            aiml_classified_at = @now,
+            aiml_content_hash  = @chash
           WHERE id = @id`,
           args: {
-            is_aiml:       res.is_aiml ? 1 : 0,
-            categories:    JSON.stringify(res.categories ?? []),
-            classified_at: now,
-            id:            res.id,
+            is_aiml:    res.is_aiml ? 1 : 0,
+            categories: JSON.stringify(res.categories ?? []),
+            now,
+            chash:      hashById.get(res.id) ?? null,
+            id:         res.id,
           },
-        })
-      }
+        })),
+        'write'
+      )
     } catch (err) {
       console.error('[Issues] AIML classification batch failed:', err)
       // Non-fatal — continue
@@ -312,19 +323,19 @@ export async function generateNeoApproaches(): Promise<void> {
   await ensureInit()
   const db = getDb()
 
-  // Process issues that have never received a NEO approach, or whose issue was
-  // updated after the last generation (freshness check)
+  // Process issues whose content has changed since last NEO generation
   const result = await db.execute(`
-    SELECT id, title, body FROM issues
-    WHERE neo_approach IS NULL
-       OR (neo_generated_at IS NOT NULL AND updated_at > neo_generated_at)
+    SELECT id, title, body, content_hash FROM issues
+    WHERE content_hash IS NOT NULL
+      AND (neo_content_hash IS NULL OR neo_content_hash != content_hash)
     ORDER BY updated_at DESC
     LIMIT 100
   `)
 
-  const rows = result.rows as unknown as Array<{ id: number; title: string; body: string | null }>
+  const rows = result.rows as unknown as Array<{ id: number; title: string; body: string | null; content_hash: string | null }>
   if (rows.length === 0) return
 
+  const hashById = new Map(rows.map(r => [r.id, r.content_hash]))
   console.log(`[Issues] Generating NEO approaches for ${rows.length} issues...`)
 
   const BATCH_SIZE = 5
@@ -400,15 +411,18 @@ Return ONLY the JSON array.`
         results = salvaged
       }
       const now = new Date().toISOString()
-      for (const res of results) {
-        const neoValue = typeof res.neo_approach === 'string'
-          ? res.neo_approach
-          : JSON.stringify(res.neo_approach)
-        await db.execute({
-          sql: `UPDATE issues SET neo_approach = @neo, neo_generated_at = @now WHERE id = @id`,
-          args: { neo: neoValue, now, id: res.id },
-        })
-      }
+      await db.batch(
+        results.map(res => {
+          const neoValue = typeof res.neo_approach === 'string'
+            ? res.neo_approach
+            : JSON.stringify(res.neo_approach)
+          return {
+            sql: `UPDATE issues SET neo_approach = @neo, neo_generated_at = @now, neo_content_hash = @chash WHERE id = @id`,
+            args: { neo: neoValue, now, chash: hashById.get(res.id) ?? null, id: res.id },
+          }
+        }),
+        'write'
+      )
     } catch (err) {
       console.error('[Issues] NEO approach batch failed:', err)
       // Non-fatal — continue with next batch
@@ -609,6 +623,14 @@ Rules:
 }
 
 // ---------------------------------------------------------------------------
+// Content hash helper for LLM dedup
+// ---------------------------------------------------------------------------
+
+function computeContentHash(title: string, body: string | null): string {
+  return createHash('sha256').update(title + '::' + (body ?? '')).digest('hex').slice(0, 16)
+}
+
+// ---------------------------------------------------------------------------
 // Main sync function
 // ---------------------------------------------------------------------------
 
@@ -674,17 +696,18 @@ export async function syncIssues(batchSize = 25): Promise<number> {
         .filter(Boolean)
 
       const opportunityType = classifyOpportunityType(labels)
+      const contentHash = computeContentHash(issue.title, issue.body)
 
       try {
         await db.execute({
           sql: `INSERT INTO issues (
             github_id, repo_id, repo_full_name, number, title, body,
             html_url, state, labels, comments, created_at, updated_at,
-            closed_at, last_synced, opportunity_type
+            closed_at, last_synced, opportunity_type, content_hash
           ) VALUES (
             @github_id, @repo_id, @repo_full_name, @number, @title, @body,
             @html_url, @state, @labels, @comments, @created_at, @updated_at,
-            @closed_at, @last_synced, @opportunity_type
+            @closed_at, @last_synced, @opportunity_type, @content_hash
           )
           ON CONFLICT(github_id) DO UPDATE SET
             title            = excluded.title,
@@ -695,7 +718,8 @@ export async function syncIssues(batchSize = 25): Promise<number> {
             updated_at       = excluded.updated_at,
             closed_at        = excluded.closed_at,
             last_synced      = excluded.last_synced,
-            opportunity_type = excluded.opportunity_type`,
+            opportunity_type = excluded.opportunity_type,
+            content_hash     = excluded.content_hash`,
           args: {
             github_id:        issue.id,
             repo_id:          repo.id,
@@ -712,6 +736,7 @@ export async function syncIssues(batchSize = 25): Promise<number> {
             closed_at:        issue.closed_at,
             last_synced:      now,
             opportunity_type: opportunityType,
+            content_hash:     contentHash,
           },
         })
         totalCount++
@@ -757,8 +782,10 @@ export async function syncIssues(batchSize = 25): Promise<number> {
     console.error('[Issues] AIML classification failed (non-fatal):', err)
   }
 
-  invalidateIssuesCache()
-  invalidateQueryCache()
+  if (totalCount > 0) {
+    invalidateIssuesCache()
+    invalidateQueryCache()
+  }
   console.log(`[Issues] Sync complete: ${totalCount} issues upserted`)
   return totalCount
 }

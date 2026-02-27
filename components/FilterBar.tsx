@@ -12,7 +12,6 @@ const CATEGORIES: { value: CategoryFilter; label: string }[] = [
   { value: 'AI/ML', label: 'AI / ML' },
   { value: 'SWE', label: 'SWE' },
   { value: 'trending', label: 'Trending' },
-  { value: 'innovation', label: '✦ Innovation' },
 ]
 
 export function FilterBar({ category, onCategoryChange }: FilterBarProps) {

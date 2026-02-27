@@ -153,7 +153,7 @@ export interface HistoryResponse {
 }
 
 export type SortField = 'stars' | 'forks' | 'growth24h' | 'growth7d'
-export type CategoryFilter = 'all' | 'AI/ML' | 'SWE' | 'trending' | 'innovation'
+export type CategoryFilter = 'all' | 'AI/ML' | 'SWE' | 'trending'
 
 export interface RepoListItem {
   full_name: string

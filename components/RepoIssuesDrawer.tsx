@@ -27,10 +27,10 @@ const TABS: {
   activeClass: string
   inactiveColor: string
 }[] = [
-  { key: 'all',         label: 'All Issues',   Icon: Sparkles,  activeClass: 'border-b-2 border-foreground text-foreground',      inactiveColor: 'text-muted-foreground' },
-  { key: 'bug',         label: 'Bugs',         Icon: Bug,       activeClass: 'border-b-2 border-red-500 text-red-400',            inactiveColor: 'text-muted-foreground' },
   { key: 'feature',     label: 'Features',     Icon: Zap,       activeClass: 'border-b-2 border-blue-500 text-blue-400',          inactiveColor: 'text-muted-foreground' },
+  { key: 'bug',         label: 'Bugs',         Icon: Bug,       activeClass: 'border-b-2 border-red-500 text-red-400',            inactiveColor: 'text-muted-foreground' },
   { key: 'improvement', label: 'Improvements', Icon: Lightbulb, activeClass: 'border-b-2 border-yellow-500 text-yellow-400',      inactiveColor: 'text-muted-foreground' },
+  { key: 'all',         label: 'All Issues',   Icon: Sparkles,  activeClass: 'border-b-2 border-foreground text-foreground',      inactiveColor: 'text-muted-foreground' },
 ]
 
 const TAB_STYLES: Record<OpportunityType, { card: string; badge: string; button: string; icon: string }> = {
@@ -248,7 +248,7 @@ export function RepoIssuesDrawer({ repo, onClose }: RepoIssuesDrawerProps) {
   const [loading, setLoading]       = useState(false)
   const [isLive, setIsLive]         = useState(false)
   const [solveIssue, setSolveIssue] = useState<IssueWithRepo | null>(null)
-  const [activeTab, setActiveTab]   = useState<ActiveTab>('all')
+  const [activeTab, setActiveTab]   = useState<ActiveTab>('feature')
 
   // Insights come from the repo prop (pre-computed during sync)
   const insights: RepoInsights | null = (() => {
@@ -295,7 +295,7 @@ export function RepoIssuesDrawer({ repo, onClose }: RepoIssuesDrawerProps) {
     setPage(1)
     setAllIssues([])
     setTotal(0)
-    setActiveTab('all')
+    setActiveTab('feature')
     fetchIssues(repo.full_name, 1)
   }, [repo, fetchIssues])
 

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Search, Sparkles } from 'lucide-react'
+import { Search } from 'lucide-react'
 import { RepoRow } from './RepoRow'
 import { FilterBar } from './FilterBar'
 import { SyncStatus } from './SyncStatus'
@@ -105,20 +105,6 @@ export function LeaderboardTable({ initialData }: LeaderboardTableProps) {
     <div className="space-y-4">
       {/* Stats */}
       <StatsHeader repos={repos} total={total} />
-
-      {/* Innovation tab contextual banner */}
-      {category === 'innovation' && (
-        <div className="flex items-start gap-3 rounded-xl border border-purple-500/20 bg-purple-500/5 px-4 py-3">
-          <Sparkles className="h-4 w-4 text-purple-400 mt-0.5 shrink-0" />
-          <div>
-            <p className="text-xs font-semibold text-purple-300 mb-0.5">AI-selected build opportunities</p>
-            <p className="text-xs text-muted-foreground">
-              These trending repos have been analyzed by AI to surface the most interesting open problems. Click the{' '}
-              <span className="text-foreground font-medium">Issues</span> button on any repo to see AI-grouped themes, individual issues scored for solvability, and a step-by-step NEO build plan for each one.
-            </p>
-          </div>
-        </div>
-      )}
 
       {/* Controls */}
       <div className="flex flex-col gap-2">

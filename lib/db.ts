@@ -161,6 +161,12 @@ export async function ensureInit(): Promise<void> {
     // Column already exists — ignore
   }
 
+  // Migrate: content hash columns for LLM dedup
+  try { await db.execute(`ALTER TABLE issues ADD COLUMN content_hash TEXT DEFAULT NULL`) } catch {}
+  try { await db.execute(`ALTER TABLE issues ADD COLUMN llm_content_hash TEXT DEFAULT NULL`) } catch {}
+  try { await db.execute(`ALTER TABLE issues ADD COLUMN aiml_content_hash TEXT DEFAULT NULL`) } catch {}
+  try { await db.execute(`ALTER TABLE issues ADD COLUMN neo_content_hash TEXT DEFAULT NULL`) } catch {}
+
   _initialized = true
 }
 
@@ -333,7 +339,6 @@ export async function getRepos(
 
   const db = getDb()
   const isTrending   = category === 'trending'
-  const isInnovation = category === 'innovation'
 
   const innerConditions: string[] = []
   const args: Record<string, string | number> = {}
@@ -341,10 +346,6 @@ export async function getRepos(
   if (isTrending) {
     innerConditions.push("r.source = 'discovered'")
     innerConditions.push("r.created_at >= datetime('now', '-6 months')")
-  } else if (isInnovation) {
-    // Repos with AI-generated opportunity insights (top 5 trending only)
-    innerConditions.push("r.source = 'discovered'")
-    innerConditions.push('r.opportunity_insights IS NOT NULL')
   } else if (category && category !== 'all') {
     innerConditions.push('r.category = @category')
     args.category = category
