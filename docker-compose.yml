@@ -1,0 +1,27 @@
+services:
+  app:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+    volumes:
+      # Named volume keeps SQLite data across container rebuilds/restarts.
+      # Not needed when using Turso (TURSO_DATABASE_URL is set).
+      - repo_data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/sync"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+volumes:
+  # Persistent SQLite storage.
+  # To inspect: docker run --rm -v repotracker_repo_data:/data alpine ls /data
+  # To back up: docker run --rm -v repotracker_repo_data:/data -v $(pwd)/backups:/out alpine \
+  #               cp /data/repos.db /out/repos-$(date +%Y%m%d).db
+  repo_data:

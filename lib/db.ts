@@ -167,7 +167,66 @@ export async function ensureInit(): Promise<void> {
   try { await db.execute(`ALTER TABLE issues ADD COLUMN aiml_content_hash TEXT DEFAULT NULL`) } catch {}
   try { await db.execute(`ALTER TABLE issues ADD COLUMN neo_content_hash TEXT DEFAULT NULL`) } catch {}
 
+  // App config table — key/value store for persistent runtime state
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS app_config (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `)
+
   _initialized = true
+}
+
+// ---------------------------------------------------------------------------
+// App config helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the timestamp of the very first deployment, creating it if missing.
+ * Persists across container restarts so the Phase-1 → Phase-2 scheduler
+ * transition survives redeploys.
+ */
+export async function getOrSetFirstDeployAt(): Promise<Date> {
+  await ensureInit()
+  const db = getDb()
+
+  const result = await db.execute({
+    sql: `SELECT value FROM app_config WHERE key = 'first_deploy_at'`,
+    args: {},
+  })
+
+  if (result.rows.length > 0) {
+    return new Date(result.rows[0].value as string)
+  }
+
+  const now = new Date().toISOString()
+  await db.execute({
+    sql: `INSERT INTO app_config (key, value) VALUES ('first_deploy_at', @now)`,
+    args: { now },
+  })
+  console.log(`[DB] First deployment recorded at ${now}`)
+  return new Date(now)
+}
+
+/**
+ * Deletes star_history records older than `days` days.
+ * Call weekly to keep the DB lean — 90 days of history is more than enough.
+ */
+export async function pruneOldStarHistory(days = 90): Promise<number> {
+  await ensureInit()
+  const db = getDb()
+
+  const result = await db.execute({
+    sql: `DELETE FROM star_history WHERE recorded_at < datetime('now', @cutoff)`,
+    args: { cutoff: `-${days} days` },
+  })
+
+  const deleted = Number(result.rowsAffected ?? 0)
+  if (deleted > 0) {
+    console.log(`[DB] Pruned ${deleted} star_history rows older than ${days} days`)
+  }
+  return deleted
 }
 
 // ---------------------------------------------------------------------------
