@@ -19,7 +19,9 @@ export async function GET(request: NextRequest) {
     const { issues, total, lastSynced, stats } = await getIssues({ difficulty, label, q, sort, page, limit, aiml, repo })
 
     const response: IssuesApiResponse = { issues, total, page, limit, lastSynced, stats }
-    return NextResponse.json(response)
+    return NextResponse.json(response, {
+      headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300' },
+    })
   } catch (err) {
     console.error('GET /api/issues error:', err)
     return NextResponse.json({ error: 'Failed to fetch issues' }, { status: 500 })

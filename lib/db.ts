@@ -92,6 +92,10 @@ export async function ensureInit(): Promise<void> {
       { sql: `CREATE INDEX IF NOT EXISTS idx_issues_github_id   ON issues(github_id)` },
       { sql: `CREATE INDEX IF NOT EXISTS idx_issues_solvability ON issues(llm_solvability)` },
       { sql: `CREATE INDEX IF NOT EXISTS idx_issues_updated_at  ON issues(updated_at)` },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_sh_repo_ts         ON star_history(repo_id, recorded_at)` },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_repos_source       ON repos(source)` },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_issues_state       ON issues(state)` },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_issues_repo_state  ON issues(repo_id, state)` },
     ],
     'write'
   )
@@ -167,6 +171,10 @@ export async function ensureInit(): Promise<void> {
   try { await db.execute(`ALTER TABLE issues ADD COLUMN aiml_content_hash TEXT DEFAULT NULL`) } catch {}
   try { await db.execute(`ALTER TABLE issues ADD COLUMN neo_content_hash TEXT DEFAULT NULL`) } catch {}
 
+  // Migrate: pre-computed growth columns (updated by insertStarHistory after each snapshot)
+  try { await db.execute(`ALTER TABLE repos ADD COLUMN growth24h INTEGER DEFAULT NULL`) } catch {}
+  try { await db.execute(`ALTER TABLE repos ADD COLUMN growth7d  INTEGER DEFAULT NULL`) } catch {}
+
   // App config table — key/value store for persistent runtime state
   await db.execute(`
     CREATE TABLE IF NOT EXISTS app_config (
@@ -239,9 +247,11 @@ interface CacheEntry {
   expiresAt: number
 }
 const queryCache = new Map<string, CacheEntry>()
+let _lastSyncedCache: { value: string | null; expiresAt: number } | null = null
 
 export function invalidateQueryCache(): void {
   queryCache.clear()
+  _lastSyncedCache = null
 }
 
 // ---------------------------------------------------------------------------
@@ -352,6 +362,15 @@ export async function insertStarHistory(
           VALUES (@repo_id, @stars, @forks, @recorded_at)`,
     args: { repo_id: repoId, stars, forks, recorded_at: new Date().toISOString() },
   })
+
+  // Keep pre-computed growth columns current so getRepos() avoids the CTE scan
+  await db.execute({
+    sql: `UPDATE repos SET
+      growth24h = (SELECT @stars - MIN(stars) FROM star_history WHERE repo_id = @rid AND recorded_at >= datetime('now', '-1 day')),
+      growth7d  = (SELECT @stars - MIN(stars) FROM star_history WHERE repo_id = @rid AND recorded_at >= datetime('now', '-7 days'))
+      WHERE id = @rid`,
+    args: { rid: repoId, stars },
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -426,48 +445,15 @@ export async function getRepos(
   const orderBy = sortMap[sort] ?? 'stars DESC'
   const offset = (page - 1) * limit
 
-  // Wrap CTE in subquery so the outer ORDER BY can reference computed aliases
-  const cteQuery = `
-    WITH latest_history AS (
-      SELECT repo_id, MAX(recorded_at) as max_ts
-      FROM star_history GROUP BY repo_id
-    ),
-    latest_stars AS (
-      SELECT sh.repo_id, sh.stars as current_stars
-      FROM star_history sh
-      INNER JOIN latest_history lh
-        ON sh.repo_id = lh.repo_id AND sh.recorded_at = lh.max_ts
-    ),
-    history_24h AS (
-      SELECT repo_id, MIN(stars) as stars_at_start
-      FROM star_history
-      WHERE recorded_at >= datetime('now', '-1 day')
-      GROUP BY repo_id
-    ),
-    history_7d AS (
-      SELECT repo_id, MIN(stars) as stars_at_start
-      FROM star_history
-      WHERE recorded_at >= datetime('now', '-7 days')
-      GROUP BY repo_id
-    )
-    SELECT
-      r.*,
-      (ls.current_stars - h24.stars_at_start) AS growth24h,
-      (ls.current_stars - h7.stars_at_start)  AS growth7d
-    FROM repos r
-    LEFT JOIN latest_stars ls  ON ls.repo_id  = r.id
-    LEFT JOIN history_24h  h24 ON h24.repo_id = r.id
-    LEFT JOIN history_7d   h7  ON h7.repo_id  = r.id
-    ${innerWhere}
-  `
+  const baseQuery = `FROM repos r ${innerWhere}`
 
   const [rowsResult, countResult] = await Promise.all([
     db.execute({
-      sql: `SELECT * FROM (${cteQuery}) ORDER BY ${orderBy} LIMIT @lim OFFSET @off`,
+      sql: `SELECT r.* ${baseQuery} ORDER BY ${orderBy} LIMIT @lim OFFSET @off`,
       args: { ...args, lim: limit, off: offset },
     }),
     db.execute({
-      sql: `SELECT COUNT(*) as count FROM (${cteQuery})`,
+      sql: `SELECT COUNT(*) as count ${baseQuery}`,
       args,
     }),
   ])
@@ -491,10 +477,13 @@ export async function getRepos(
 // ---------------------------------------------------------------------------
 
 export async function getLastSynced(): Promise<string | null> {
+  if (_lastSyncedCache && _lastSyncedCache.expiresAt > Date.now()) return _lastSyncedCache.value
   await ensureInit()
   const db = getDb()
   const result = await db.execute(`SELECT MAX(last_synced) as last_synced FROM repos`)
-  return (result.rows[0]?.last_synced as string) ?? null
+  const value = (result.rows[0]?.last_synced as string) ?? null
+  _lastSyncedCache = { value, expiresAt: Date.now() + QUERY_CACHE_TTL_MS }
+  return value
 }
 
 export async function getRepoLastSynced(): Promise<Record<string, string>> {

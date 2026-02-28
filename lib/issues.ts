@@ -441,14 +441,13 @@ Return ONLY the JSON array.`
 // ---------------------------------------------------------------------------
 
 export async function generateRepoInsights(): Promise<void> {
-  const anthropicKey = process.env.ANTHROPIC_API_KEY
   const openrouterKey = process.env.OPENROUTER_API_KEY
-  if (!anthropicKey && !openrouterKey) return
+  if (!openrouterKey) return
 
   await ensureInit()
   const db = getDb()
 
-  // Only generate insights for the top 20 trending (discovered) repos by stars
+  // All top 50 trending repos by stars — process all pending in one sync
   const reposResult = await db.execute(`
     SELECT DISTINCT r.id, r.full_name, r.name
     FROM repos r
@@ -456,7 +455,7 @@ export async function generateRepoInsights(): Promise<void> {
     WHERE r.source = 'discovered'
       AND r.id IN (
         SELECT id FROM repos WHERE source = 'discovered'
-        ORDER BY stars DESC LIMIT 5
+        ORDER BY stars DESC LIMIT 50
       )
       AND (
         r.opportunity_insights IS NULL
@@ -465,7 +464,6 @@ export async function generateRepoInsights(): Promise<void> {
             AND r.insights_generated_at IS NOT NULL
             AND r.issues_last_synced_at > r.insights_generated_at)
       )
-    LIMIT 8
   `)
 
   const repos = reposResult.rows as unknown as Array<{ id: number; full_name: string; name: string }>
@@ -473,18 +471,63 @@ export async function generateRepoInsights(): Promise<void> {
 
   console.log(`[Issues] Generating opportunity insights for ${repos.length} repos...`)
 
-  // Helper: call LLM via whichever provider is available
-  async function callLLM(prompt: string): Promise<string> {
-    if (anthropicKey) {
-      const Anthropic = (await import('@anthropic-ai/sdk')).default
-      const client = new Anthropic({ apiKey: anthropicKey })
-      const message = await client.messages.create({
-        model: 'claude-haiku-4-5',
-        max_tokens: 1024,
-        messages: [{ role: 'user', content: prompt }],
+  for (const repo of repos) {
+    try {
+      // Feed ALL open issues (top 30 by community engagement) — let LLM classify
+      const issuesRes = await db.execute({
+        sql: `SELECT title, body, comments FROM issues
+              WHERE repo_id = @repo_id AND state = 'open'
+              ORDER BY comments DESC LIMIT 30`,
+        args: { repo_id: repo.id },
       })
-      return message.content[0].type === 'text' ? message.content[0].text : ''
-    } else {
+
+      type IssueRow = { title: string; body: string | null; comments: number }
+      const issues = issuesRes.rows as unknown as IssueRow[]
+      if (issues.length === 0) continue
+
+      const issueList = issues.map((issue, i) => {
+        const snippet = issue.body
+          ? issue.body.replace(/<!--[\s\S]*?-->/g, '').replace(/[#*`>\[\]]/g, '').trim().slice(0, 120)
+          : ''
+        return `${i + 1}. "${issue.title}" (${issue.comments} comments)${snippet ? `\n   ${snippet}` : ''}`
+      }).join('\n\n')
+
+      const prompt = `You are analyzing open GitHub issues for the repository "${repo.full_name}".
+
+Here are the top open issues sorted by community engagement:
+
+${issueList}
+
+Group these into consolidated problem themes under 3 categories: bugs, features, and improvements.
+A theme represents either:
+- Multiple issues (2+) describing the same underlying problem — merge them into one
+- A single high-impact issue that clearly belongs to a category
+
+Frame every theme from the END USER's perspective — what are users experiencing or wanting?
+
+Respond with ONLY valid JSON, no markdown fences, no explanation:
+{
+  "bugs": [
+    {
+      "title": "Short user-facing problem (5-8 words)",
+      "description": "2-3 sentences on what users experience and the real-world impact.",
+      "issue_count": 2,
+      "total_comments": 45,
+      "urgency": "high",
+      "suggested_approach": "One concrete sentence on how to fix this."
+    }
+  ],
+  "features": [ ... same shape ... ],
+  "improvements": [ ... same shape ... ]
+}
+
+Rules:
+- 2–4 themes per category maximum
+- Set a category to null (not []) if no issues clearly belong to it
+- urgency: "high" = crashes or blockers, "medium" = usability or popular requests, "low" = nice-to-have
+- Titles must be specific and user-centric — avoid generic labels like "Bug Fix" or "Performance Issue"
+- Only include a theme if real issues from the list support it`
+
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -494,114 +537,52 @@ export async function generateRepoInsights(): Promise<void> {
           'X-Title': 'RepoTracker',
         },
         body: JSON.stringify({
-          model: 'anthropic/claude-haiku-4-5',
+          model: 'meta-llama/llama-3.1-8b-instruct',
           max_tokens: 2048,
           messages: [
-            { role: 'system', content: 'You are a helpful assistant. Respond only with valid JSON.' },
+            { role: 'system', content: 'You are a helpful assistant. Respond only with valid JSON, no markdown.' },
             { role: 'user', content: prompt },
           ],
         }),
       })
+
       if (!response.ok) {
         const errText = await response.text()
         throw new Error(`OpenRouter ${response.status}: ${errText.slice(0, 200)}`)
       }
+
       const json = await response.json() as {
         choices?: Array<{ message?: { content?: string }; finish_reason?: string }>
         error?: { message?: string }
       }
       if (json.error) throw new Error(`OpenRouter error: ${json.error.message}`)
-      const content = json.choices?.[0]?.message?.content ?? ''
-      if (!content) console.warn(`[Issues] OpenRouter returned empty content, finish_reason=${json.choices?.[0]?.finish_reason}, response:`, JSON.stringify(json).slice(0, 600))
-      return content
-    }
-  }
+      const text = json.choices?.[0]?.message?.content ?? ''
+      if (!text) {
+        console.warn(`[Issues] Insights: empty response for ${repo.full_name}`)
+        continue
+      }
 
-  for (const repo of repos) {
-    try {
-      // Fetch top issues per category by comment count
-      const [bugsRes, featuresRes, improvementsRes] = await Promise.all([
-        db.execute({
-          sql: `SELECT title, comments, llm_summary FROM issues
-                WHERE repo_id = @repo_id AND opportunity_type = 'bug'
-                ORDER BY comments DESC LIMIT 6`,
-          args: { repo_id: repo.id },
-        }),
-        db.execute({
-          sql: `SELECT title, comments, llm_summary FROM issues
-                WHERE repo_id = @repo_id AND opportunity_type = 'feature'
-                ORDER BY comments DESC LIMIT 6`,
-          args: { repo_id: repo.id },
-        }),
-        db.execute({
-          sql: `SELECT title, comments, llm_summary FROM issues
-                WHERE repo_id = @repo_id AND opportunity_type = 'improvement'
-                ORDER BY comments DESC LIMIT 5`,
-          args: { repo_id: repo.id },
-        }),
-      ])
-
-      type IssueRow = { title: string; comments: number; llm_summary: string | null }
-      const bugs = bugsRes.rows as unknown as IssueRow[]
-      const features = featuresRes.rows as unknown as IssueRow[]
-      const improvements = improvementsRes.rows as unknown as IssueRow[]
-
-      if (bugs.length === 0 && features.length === 0 && improvements.length === 0) continue
-
-      const formatList = (items: IssueRow[]) =>
-        items.map(i => `- "${i.title}" (${i.comments} comments)${i.llm_summary ? ` — ${i.llm_summary}` : ''}`).join('\n')
-
-      const prompt = `Analyze GitHub issues for "${repo.full_name}" and group them into synthesized themes. Each theme clusters related issues sharing a common root cause, request, or pattern.
-
-Top bugs (by comment count):
-${bugs.length > 0 ? formatList(bugs) : '(none)'}
-
-Top feature requests:
-${features.length > 0 ? formatList(features) : '(none)'}
-
-Top improvements:
-${improvements.length > 0 ? formatList(improvements) : '(none)'}
-
-Return a JSON object with exactly this structure:
-{
-  "bugs": [{"title": "Specific 4-8 word theme", "description": "2-3 sentences about what users experience and why it matters.", "issue_count": 2, "total_comments": 45, "urgency": "high", "suggested_approach": "One sentence on best way to address this."}],
-  "features": [{"title": "Specific 4-8 word theme", "description": "2-3 sentences about what users want and the use case.", "issue_count": 3, "total_comments": 67, "urgency": "medium", "suggested_approach": "One sentence on best way to address this."}],
-  "improvements": [{"title": "Specific 4-8 word theme", "description": "2-3 sentences about the pain point and benefit.", "issue_count": 1, "total_comments": 12, "urgency": "low", "suggested_approach": "One sentence on best way to address this."}]
-}
-
-Rules:
-- 2-4 themes per category maximum
-- Use null (not empty array) if a category has no issues
-- issue_count = number of listed issues this theme covers (integer)
-- total_comments = sum of comments for those issues (integer)
-- Titles must be specific, not generic (avoid "Bug Fixes" or "Performance Issues")
-- urgency: "high"=crashes/data loss/blockers with many comments, "medium"=usability/popular requests, "low"=nice-to-haves/minor polish
-- suggested_approach: one concrete sentence on the best technical approach to address this theme`
-
-      const text = await callLLM(prompt)
-
-      // Robust JSON extraction: handle markdown fences, leading/trailing text
+      // Robust JSON extraction — strip markdown fences if present
       let insights: unknown = null
-      // 1. Try stripping markdown code fences first
       const stripped = text.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim()
-      // 2. Find the outermost JSON object via first { … last }
       const firstBrace = stripped.indexOf('{')
       const lastBrace  = stripped.lastIndexOf('}')
       if (firstBrace !== -1 && lastBrace > firstBrace) {
         try {
           insights = JSON.parse(stripped.slice(firstBrace, lastBrace + 1))
         } catch {
-          console.warn(`[Issues] Insights JSON parse failed for ${repo.full_name}, raw (200 chars):`, stripped.slice(0, 200))
+          console.warn(`[Issues] Insights JSON parse failed for ${repo.full_name}:`, stripped.slice(0, 200))
           continue
         }
       } else {
-        console.warn(`[Issues] Insights LLM returned no JSON object for ${repo.full_name}, raw (200 chars):`, text.slice(0, 200))
+        console.warn(`[Issues] Insights: no JSON object for ${repo.full_name}:`, text.slice(0, 200))
         continue
       }
+
       await db.execute({
         sql: `UPDATE repos SET
-          opportunity_insights    = @insights,
-          insights_generated_at   = @now
+          opportunity_insights  = @insights,
+          insights_generated_at = @now
           WHERE id = @id`,
         args: {
           insights: JSON.stringify(insights),
@@ -613,7 +594,6 @@ Rules:
       console.log(`[Issues] Insights generated for ${repo.full_name}`)
     } catch (err) {
       console.error(`[Issues] Insights failed for ${repo.full_name}:`, err)
-      // Non-fatal — continue with next repo
     }
 
     await new Promise(resolve => setTimeout(resolve, 1000))
@@ -821,7 +801,7 @@ export async function getIssues(
     repo,
   } = options
 
-  const cacheKey = `${difficulty}|${label}|${q}|${sort}|${page}|${limit}|${aiml ?? ''}|${repo ?? ''}`
+  const cacheKey = JSON.stringify({ difficulty: difficulty ?? null, label: label ?? null, q, sort, page, limit, aiml: aiml ?? null, repo: repo ?? null })
   const cached = issuesCache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) return cached.data
 
@@ -880,15 +860,14 @@ export async function getIssues(
       sql: `SELECT COUNT(*) as count FROM issues i JOIN repos r ON r.id = i.repo_id ${where}`,
       args,
     }),
-    db.execute(`
-      SELECT llm_difficulty, COUNT(*) as count
-      FROM issues
-      WHERE state = 'open'
-      GROUP BY llm_difficulty
-    `),
-    db.execute(`
-      SELECT COUNT(*) as count FROM issues WHERE state = 'open' AND is_aiml_issue = 1
-    `),
+    db.execute({
+      sql: `SELECT i.llm_difficulty, COUNT(*) as count FROM issues i JOIN repos r ON r.id = i.repo_id ${where} GROUP BY i.llm_difficulty`,
+      args,
+    }),
+    db.execute({
+      sql: `SELECT COUNT(*) as count FROM issues i JOIN repos r ON r.id = i.repo_id ${where} AND i.is_aiml_issue = 1`,
+      args,
+    }),
     getLastSynced(),
   ])
 

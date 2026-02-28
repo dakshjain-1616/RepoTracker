@@ -68,7 +68,6 @@ export function RepoRow({ repo, index, onViewIssues }: RepoRowProps) {
   return (
     <tr
       className="group border-b border-border/50 hover:bg-white/[0.02] transition-colors"
-      onMouseEnter={loadHistory}
     >
       {/* Rank */}
       <td className="py-3 pl-4 pr-2 w-10">
@@ -143,7 +142,11 @@ export function RepoRow({ repo, index, onViewIssues }: RepoRowProps) {
       </td>
 
       {/* Sparkline */}
-      <td className="py-3 px-3 hidden xl:table-cell">
+      <td
+        className="py-3 px-3 hidden xl:table-cell cursor-pointer"
+        onClick={loadHistory}
+        title="Click to load star history"
+      >
         <div className="flex justify-center">
           {loadingHistory ? (
             <div style={{ width: 80, height: 30 }} className="flex items-center justify-center">
