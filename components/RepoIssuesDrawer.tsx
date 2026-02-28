@@ -9,7 +9,6 @@ import { DifficultyBadge } from './DifficultyBadge'
 import { AimlBadge } from './AimlBadge'
 import { SolvabilityMeter } from './SolvabilityMeter'
 import { SolveWithNewDrawer } from './SolveWithNewDrawer'
-import { OpportunitiesPanel } from './OpportunitiesPanel'
 import { formatStars, parseNeoApproach, safeJson } from '@/lib/utils'
 import type {
   Repo, IssueWithRepo, IssuesApiResponse, IssueDifficulty,
@@ -316,9 +315,11 @@ export function RepoIssuesDrawer({ repo, onClose }: RepoIssuesDrawerProps) {
     fetchIssues(repo!.full_name, pg)
   }
 
-  // Issue counts per category (from fetched issues, not theme count)
-  const categoryCount = (type: OpportunityType) =>
-    allIssues.filter(i => i.opportunity_type === type).length
+  // Theme counts per category (from AI-generated insights)
+  const categoryCount = (type: OpportunityType) => {
+    const key = type === 'bug' ? 'bugs' : type === 'feature' ? 'features' : 'improvements'
+    return insights?.[key]?.length ?? 0
+  }
 
   // Build a synthetic IssueWithRepo from a theme so SolveWithNewDrawer can display it
   function themeToIssue(theme: RepoInsightTheme, type: OpportunityType): IssueWithRepo {
@@ -440,13 +441,12 @@ export function RepoIssuesDrawer({ repo, onClose }: RepoIssuesDrawerProps) {
           })}
         </div>
 
-        {/* AI context bar — shown on insight tabs to explain the two-section layout */}
+        {/* AI context bar — shown on insight tabs */}
         {activeTab !== 'all' && (
           <div className="flex items-center gap-2 px-5 py-2 bg-muted/20 border-b border-border/50">
             <Sparkles className="h-3 w-3 text-muted-foreground shrink-0" />
             <p className="text-[10px] text-muted-foreground leading-snug">
-              <span className="font-medium text-foreground/70">AI themes</span> group similar issues by pattern &amp; impact ·{' '}
-              <span className="font-medium text-foreground/70">Individual issues</span> below are sorted by community demand
+              <span className="font-medium text-foreground/70">AI-synthesized</span> — similar issues consolidated into user-facing problem themes · click <span className="font-medium text-foreground/70">Build with NEO</span> to solve
             </p>
           </div>
         )}
@@ -474,26 +474,14 @@ export function RepoIssuesDrawer({ repo, onClose }: RepoIssuesDrawerProps) {
                 {allIssues.map(issue => (
                   <IssueRow key={issue.github_id} issue={issue} onSolve={setSolveIssue} />
                 ))}
-                {allIssues.length > 0 && (
-                  <div className="mt-3 pt-4 border-t border-border/30">
-                    <OpportunitiesPanel issues={allIssues} onBuildWithNeo={setSolveIssue} />
-                  </div>
-                )}
               </div>
             )
           )}
 
-          {/* ── Category tabs: AI themes + individual issues ── */}
+          {/* ── Category tabs: AI-consolidated theme cards only ── */}
           {activeTab !== 'all' && (() => {
             const key = activeTab === 'bug' ? 'bugs' : activeTab === 'feature' ? 'features' : 'improvements'
             const themes = insights?.[key] ?? null
-            // Filter allIssues to this category, sorted by user demand (comments) then solvability
-            const filtered = allIssues
-              .filter(i => i.opportunity_type === activeTab)
-              .sort((a, b) =>
-                b.comments - a.comments ||
-                (b.llm_solvability ?? 0) - (a.llm_solvability ?? 0)
-              )
 
             if (loading) return (
               <div className="flex items-center justify-center py-20">
@@ -501,54 +489,26 @@ export function RepoIssuesDrawer({ repo, onClose }: RepoIssuesDrawerProps) {
               </div>
             )
 
-            if (!themes && filtered.length === 0) return <InsightsPlaceholder type={activeTab} />
+            if (!themes || themes.length === 0) return <InsightsPlaceholder type={activeTab} />
 
             return (
               <div className="flex flex-col gap-3">
-                {/* AI synthesis cards — the "why this matters" context */}
-                {themes && themes.length > 0 && (
-                  <>
-                    <div className="flex items-center gap-1.5 px-0.5">
-                      <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                        AI-synthesized themes
-                      </p>
-                      <span className="text-[10px] text-muted-foreground/60">
-                        — grouped from {allIssues.length} issues
-                      </span>
-                    </div>
-                    {themes.map((theme, i) => (
-                      <InsightThemeCard
-                        key={i}
-                        theme={theme}
-                        type={activeTab}
-                        onBuildWithNeo={() => setSolveIssue(themeToIssue(theme, activeTab))}
-                      />
-                    ))}
-                  </>
-                )}
-
-                {/* Individual issues sorted by user demand */}
-                {filtered.length > 0 && (
-                  <>
-                    <div className="flex items-center gap-2 pt-1">
-                      <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider shrink-0">
-                        Top issues by demand
-                      </p>
-                      <div className="flex-1 h-px bg-border/40" />
-                      <span className="text-[10px] text-muted-foreground shrink-0">{filtered.length}</span>
-                    </div>
-                    {filtered.map(issue => (
-                      <IssueRow key={issue.github_id} issue={issue} onSolve={setSolveIssue} />
-                    ))}
-                  </>
-                )}
-
-                {/* No individual issues yet but themes exist */}
-                {filtered.length === 0 && themes && themes.length > 0 && (
-                  <p className="text-xs text-muted-foreground text-center py-3">
-                    Individual issues will appear after the next sync.
+                <div className="flex items-center gap-1.5 px-0.5">
+                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                    {themes.length} consolidated theme{themes.length !== 1 ? 's' : ''}
                   </p>
-                )}
+                  <span className="text-[10px] text-muted-foreground/60">
+                    — derived from {allIssues.length} open issues
+                  </span>
+                </div>
+                {themes.map((theme, i) => (
+                  <InsightThemeCard
+                    key={i}
+                    theme={theme}
+                    type={activeTab}
+                    onBuildWithNeo={() => setSolveIssue(themeToIssue(theme, activeTab))}
+                  />
+                ))}
               </div>
             )
           })()}

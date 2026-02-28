@@ -88,8 +88,7 @@ export async function POST(req: Request) {
     if (mode === 'issues') {
       // Targeted path: only issue sync + enrichment
       const issueCount = await syncIssues()
-      await generateNeoApproaches()
-      await generateRepoInsights()
+      await Promise.all([generateNeoApproaches(), generateRepoInsights()])
       const response: SyncResponse = {
         success: true,
         count: 0,
@@ -103,8 +102,7 @@ export async function POST(req: Request) {
     // Full sync (mode === 'all')
     const [count, trendingCount] = await Promise.all([runSync(), discoverTrending()])
     const issueCount = await syncIssues()
-    await generateNeoApproaches()
-    await generateRepoInsights()
+    await Promise.all([generateNeoApproaches(), generateRepoInsights()])
     const response: SyncResponse = {
       success: true,
       count,

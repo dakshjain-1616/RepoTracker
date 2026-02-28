@@ -83,8 +83,7 @@ export async function startScheduler() {
       console.log(`[Scheduler] Starting ${label} sync...`)
       const [count, trendingCount] = await Promise.all([runSync(), discoverTrending()])
       const issueCount = await syncIssues()
-      await generateNeoApproaches()
-      await generateRepoInsights()
+      await Promise.all([generateNeoApproaches(), generateRepoInsights()])
       const elapsed = ((Date.now() - start) / 1000).toFixed(1)
       console.log(
         `[Scheduler] ${label} sync done in ${elapsed}s — ` +
